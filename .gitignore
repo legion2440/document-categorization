@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Raw / generated datasets (reproducible via scripts/prepare_data.py)
+data/raw_documents/*
+!data/raw_documents/.gitkeep
+data/processed_data/*
+!data/processed_data/.gitkeep
+
+# Large trained/optimized model artifacts
+models/checkpoints/*.h5
+models/checkpoints/*.keras
+models/checkpoints/*.tflite
+models/checkpoints/*.joblib
+
+# Local caches
+.cache/
+hf_cache/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
