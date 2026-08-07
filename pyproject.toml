@@ -1,0 +1,13 @@
+[project]
+name = "document-categorization"
+version = "0.1.0"
+description = "Multilingual document classification and context-aware tagging"
+requires-python = ">=3.11,<3.14"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
