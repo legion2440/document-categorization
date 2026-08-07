@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "module_id": "inference",
+  "purpose": "Batch classification plus tagging real-time inference pipeline",
+  "paths": [
+    {"path": "utils/inference.py", "lifecycle": "implemented", "provenance": "authored"}
+  ],
+  "contracts": [],
+  "validators": ["scripts/validate_agent_contracts.py"],
+  "tests": ["tests/test_inference_contract.py"],
+  "runtime_evidence": []
+}

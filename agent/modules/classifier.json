@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "module_id": "classifier",
+  "purpose": "TF/Keras baseline and multilingual DistilBERT transfer-learning classifier",
+  "paths": [
+    {"path": "models/text_classifier.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "models/baseline.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "utils/transfer_learning.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "utils/model_optimization.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/train.py", "lifecycle": "implemented", "provenance": "authored"}
+  ],
+  "contracts": [],
+  "validators": ["scripts/validate_agent_contracts.py"],
+  "tests": ["tests/test_classifier_config.py"],
+  "runtime_evidence": []
+}

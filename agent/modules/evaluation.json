@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "module_id": "evaluation",
+  "purpose": "Metrics, throughput benchmark, report generation and audit validation",
+  "paths": [
+    {"path": "scripts/evaluate.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/validate_project.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/run_pipeline.py", "lifecycle": "implemented", "provenance": "authored"}
+  ],
+  "contracts": [],
+  "validators": ["scripts/validate_agent_contracts.py"],
+  "tests": ["tests/test_project_validation.py"],
+  "runtime_evidence": []
+}

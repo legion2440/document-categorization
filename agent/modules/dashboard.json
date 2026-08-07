@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "module_id": "dashboard",
+  "purpose": "Streamlit real-time dashboard and metric visualizations",
+  "paths": [
+    {"path": "app/real_time_dashboard.py", "lifecycle": "implemented", "provenance": "authored"}
+  ],
+  "contracts": [],
+  "validators": ["scripts/validate_agent_contracts.py"],
+  "tests": [],
+  "runtime_evidence": []
+}

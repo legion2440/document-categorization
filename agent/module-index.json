@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "modules": {
+    "data-pipeline": {
+      "status": "implemented",
+      "roots": ["data/", "utils/"],
+      "entrypoints": ["scripts/prepare_data.py", "utils/data_loader.py", "utils/text_preprocessing.py"],
+      "manifest": "agent/modules/data-pipeline.json",
+      "dependencies": []
+    },
+    "classifier": {
+      "status": "implemented",
+      "roots": ["models/", "utils/"],
+      "entrypoints": ["models/text_classifier.py", "utils/transfer_learning.py", "scripts/train.py"],
+      "manifest": "agent/modules/classifier.json",
+      "dependencies": ["data-pipeline"]
+    },
+    "tagging": {
+      "status": "implemented",
+      "roots": ["models/"],
+      "entrypoints": ["models/tagger.py"],
+      "manifest": "agent/modules/tagging.json",
+      "dependencies": ["data-pipeline"]
+    },
+    "inference": {
+      "status": "implemented",
+      "roots": ["utils/"],
+      "entrypoints": ["utils/inference.py"],
+      "manifest": "agent/modules/inference.json",
+      "dependencies": ["classifier", "tagging"]
+    },
+    "evaluation": {
+      "status": "implemented",
+      "roots": ["reports/", "scripts/"],
+      "entrypoints": ["scripts/evaluate.py", "scripts/validate_project.py"],
+      "manifest": "agent/modules/evaluation.json",
+      "dependencies": ["data-pipeline", "classifier", "tagging", "inference"]
+    },
+    "dashboard": {
+      "status": "implemented",
+      "roots": ["app/"],
+      "entrypoints": ["app/real_time_dashboard.py"],
+      "manifest": "agent/modules/dashboard.json",
+      "dependencies": ["inference", "evaluation"]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "edges": [
+    ["classifier", "data-pipeline"],
+    ["tagging", "data-pipeline"],
+    ["inference", "classifier"],
+    ["inference", "tagging"],
+    ["evaluation", "data-pipeline"],
+    ["evaluation", "classifier"],
+    ["evaluation", "tagging"],
+    ["evaluation", "inference"],
+    ["dashboard", "inference"],
+    ["dashboard", "evaluation"]
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["methodology", "version", "module_index", "dependency_graph", "module_manifests", "schemas"],
+  "properties": {
+    "methodology": {"const": "agent-project-methodology"},
+    "version": {"type": "string"},
+    "module_index": {"type": "string"},
+    "dependency_graph": {"type": "string"},
+    "module_manifests": {"type": "string"},
+    "schemas": {"type": "string"}
+  },
+  "additionalProperties": false
+}

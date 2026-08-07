@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "module_id", "purpose", "paths", "contracts", "validators", "tests", "runtime_evidence"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "module_id": {"type": "string"},
+    "purpose": {"type": "string"},
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "lifecycle", "provenance"],
+        "properties": {
+          "path": {"type": "string"},
+          "lifecycle": {"enum": ["planned", "implemented", "deprecated"]},
+          "provenance": {"enum": ["authored", "generated"]},
+          "generator": {"type": "string"},
+          "check": {"type": "string"},
+          "legacy_consumers": {"type": "array", "items": {"type": "string"}}
+        },
+        "allOf": [
+          {"if": {"properties": {"provenance": {"const": "generated"}}}, "then": {"required": ["generator", "check"]}},
+          {"if": {"properties": {"lifecycle": {"const": "deprecated"}}}, "then": {"required": ["legacy_consumers"]}}
+        ],
+        "additionalProperties": false
+      }
+    },
+    "contracts": {"type": "array", "items": {"type": "string"}},
+    "validators": {"type": "array", "items": {"type": "string"}},
+    "tests": {"type": "array", "items": {"type": "string"}},
+    "runtime_evidence": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

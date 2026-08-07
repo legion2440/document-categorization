@@ -1,0 +1,8 @@
+{
+  "methodology": "agent-project-methodology",
+  "version": "1.1",
+  "module_index": "agent/module-index.json",
+  "dependency_graph": "agent/dependency-graph.json",
+  "module_manifests": "agent/modules",
+  "schemas": "agent/schemas"
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "module_id": "tagging",
+  "purpose": "spaCy multilingual NER and context-aware tag extraction",
+  "paths": [
+    {"path": "models/tagger.py", "lifecycle": "implemented", "provenance": "authored"}
+  ],
+  "contracts": [],
+  "validators": ["scripts/validate_agent_contracts.py"],
+  "tests": ["tests/test_tagger.py"],
+  "runtime_evidence": []
+}
