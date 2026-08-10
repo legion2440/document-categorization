@@ -32,7 +32,7 @@
     "evaluation": {
       "status": "implemented",
       "roots": ["reports/", "scripts/"],
-      "entrypoints": ["scripts/evaluate.py", "scripts/validate_project.py"],
+      "entrypoints": ["scripts/probe_preprocessing.py", "scripts/evaluate.py", "scripts/validate_project.py"],
       "manifest": "agent/modules/evaluation.json",
       "dependencies": ["data-pipeline", "classifier", "tagging", "inference"]
     },
