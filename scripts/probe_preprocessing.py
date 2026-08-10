@@ -1,38 +1,98 @@
 #!/usr/bin/env python3
-"""Cheap pre-regeneration probe for category selection, window accuracy and CPU NLP cost."""
+"""Final cheap probe before multilingual dataset regeneration."""
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import re
 import sys
 import time
 
 import pandas as pd
-from sklearn.datasets import fetch_20newsgroups
 from sklearn.metrics import accuracy_score, f1_score
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from models.baseline import build_baseline
-from models.tagger import LANGUAGE_MODELS, DocumentTagger, detect_language_code
-from utils.data_loader import REMOVE_PARTS, DatasetConfig, category_selection_summary, fetch_english_dataset
-from utils.text_preprocessing import canonical_window
+from models.tagger import LANGUAGE_DETECTION_PREFIX_CHARS, LANGUAGE_MODELS, DocumentTagger, detect_language_code
+from utils.data_loader import DatasetConfig, category_selection_summary, fetch_english_dataset
+from utils.text_preprocessing import (
+    CLASSIFICATION_WINDOW_WORDS,
+    GARBAGE_LINE_MIN_CHARS,
+    GARBAGE_TOKENS_PER_WORD,
+    canonical_window,
+    remove_token_dense_lines,
+)
 from utils.translation import TranslationConfig
 
-FROZEN_WINDOW_WORDS = 150
+TAGGING_WINDOWS = (50, 75, 100, 150)
+
+
+def _load_marian_tokenizer(model_name: str):
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    tokenizer.model_max_length = 1_000_000
+    return tokenizer
+
+
+def _content_token_count(tokenizer, text: str) -> int:
+    return len(
+        tokenizer(
+            text,
+            add_special_tokens=False,
+            truncation=False,
+            verbose=False,
+        )["input_ids"]
+    )
+
+
+def _input_token_count(tokenizer, text: str) -> int:
+    return len(
+        tokenizer(
+            text,
+            add_special_tokens=True,
+            truncation=False,
+            verbose=False,
+        )["input_ids"]
+    )
+
+
+def apply_frozen_cleanup(frame: pd.DataFrame, tokenizer) -> tuple[pd.DataFrame, dict[str, int]]:
+    rows = []
+    removed_lines = 0
+    dropped_documents = 0
+    for _, row in frame.iterrows():
+        cleaned, removed = remove_token_dense_lines(
+            str(row["_raw_text"]),
+            lambda text: _content_token_count(tokenizer, text),
+        )
+        removed_lines += removed
+        text = canonical_window(cleaned, None)
+        if not text:
+            dropped_documents += 1
+            continue
+        current = row.copy()
+        current["text"] = text
+        rows.append(current)
+    return pd.DataFrame(rows).reset_index(drop=True), {
+        "removed_lines": removed_lines,
+        "dropped_documents": dropped_documents,
+    }
 
 
 def _window(texts: pd.Series, words: int | None) -> list[str]:
-    if words is None:
-        return texts.astype(str).tolist()
     return [canonical_window(text, words) for text in texts.astype(str)]
 
 
-def baseline_curve(train: pd.DataFrame, validation: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
+def baseline_curve(train: pd.DataFrame, validation: pd.DataFrame) -> pd.DataFrame:
     rows = []
-    variants: list[tuple[str, int | None]] = [(str(value), value) for value in windows] + [("full", None)]
+    variants: list[tuple[str, int | None]] = [
+        ("100", 100),
+        ("150", CLASSIFICATION_WINDOW_WORDS),
+        ("200", 200),
+        ("full", None),
+    ]
     for label, words in variants:
         model = build_baseline()
         model.fit(_window(train["text"], words), train["label_id"])
@@ -50,80 +110,20 @@ def baseline_curve(train: pd.DataFrame, validation: pd.DataFrame, windows: list[
     return result
 
 
-def _load_marian_tokenizer(model_name: str):
-    from transformers import AutoTokenizer
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    # Diagnostics intentionally inspect long inputs without feeding them into the model.
-    tokenizer.model_max_length = 1_000_000
-    return tokenizer
-
-
-def _token_count(tokenizer, text: str) -> int:
-    return len(tokenizer(text, add_special_tokens=False, truncation=False)["input_ids"])
-
-
-def garbage_diagnostics(train: pd.DataFrame, model_name: str) -> tuple[pd.Series, pd.DataFrame]:
-    tokenizer = _load_marian_tokenizer(model_name)
-    rows = []
-    batch_size = 128
-    for start in range(0, len(train), batch_size):
-        chunk = train.iloc[start : start + batch_size]
-        texts = chunk["text"].astype(str).tolist()
-        encoded = tokenizer(texts, add_special_tokens=False, truncation=False, padding=False)["input_ids"]
-        for (_, row), token_ids in zip(chunk.iterrows(), encoded):
-            words = max(1, len(str(row["text"]).split()))
-            rows.append(
-                {
-                    "pair_id": row["pair_id"],
-                    "label": row["label"],
-                    "words": words,
-                    "marian_tokens": len(token_ids),
-                    "tokens_per_word": len(token_ids) / words,
-                }
-            )
-    frame = pd.DataFrame(rows)
-    quantiles = frame["tokens_per_word"].quantile([0.90, 0.95, 0.99, 0.995, 0.999, 1.0])
-    worst = frame.sort_values(["tokens_per_word", "marian_tokens"], ascending=False).head(20)
-    return quantiles, worst
-
-
-def encoded_line_diagnostics(config: DatasetConfig, categories: list[str], model_name: str) -> tuple[pd.Series, pd.DataFrame]:
-    """Inspect line-level Marian token density before whitespace normalization destroys block boundaries."""
-    tokenizer = _load_marian_tokenizer(model_name)
-    bunch = fetch_20newsgroups(
-        subset="train",
-        categories=categories,
-        shuffle=True,
-        random_state=config.random_state,
-        data_home=str(config.data_home),
-        remove=REMOVE_PARTS,
-    )
-    rows = []
-    for raw, filename in zip(bunch.data, bunch.filenames):
-        pair_id = f"{Path(filename).parent.name}/{Path(filename).name}"
-        for line in str(raw).splitlines():
-            sample = re.sub(r"\s+", " ", line).strip()
-            if len(sample) < 40:
-                continue
-            words = max(1, len(sample.split()))
-            tokens = _token_count(tokenizer, sample)
-            rows.append(
-                {
-                    "pair_id": pair_id,
-                    "chars": len(sample),
-                    "words": words,
-                    "marian_tokens": tokens,
-                    "tokens_per_word": tokens / words,
-                    "preview": sample[:100],
-                }
-            )
-    frame = pd.DataFrame(rows)
-    if frame.empty:
-        return pd.Series(dtype=float), frame
-    quantiles = frame["tokens_per_word"].quantile([0.90, 0.95, 0.99, 0.995, 0.999, 1.0])
-    worst = frame.sort_values(["tokens_per_word", "marian_tokens"], ascending=False).head(20)
-    return quantiles, worst
+def translation_budget_summary(frames: list[pd.DataFrame], tokenizer) -> dict[str, float | int]:
+    lengths = []
+    for frame in frames:
+        for text in _window(frame["text"], CLASSIFICATION_WINDOW_WORDS):
+            lengths.append(_input_token_count(tokenizer, text))
+    series = pd.Series(lengths, dtype=float)
+    budget = TranslationConfig().max_input_tokens
+    return {
+        "documents": len(lengths),
+        "p99_tokens": float(series.quantile(0.99)),
+        "max_tokens": int(series.max()),
+        "over_single_chunk_budget": int((series > budget).sum()),
+        "single_chunk_budget": budget,
+    }
 
 
 def _load_timing_proxy(per_language: int) -> pd.DataFrame | None:
@@ -148,17 +148,18 @@ def _load_timing_proxy(per_language: int) -> pd.DataFrame | None:
     return pd.concat(selected, ignore_index=True).sample(frac=1, random_state=42).reset_index(drop=True)
 
 
-def language_detection_metrics(proxy: pd.DataFrame, prefix_chars: int) -> dict[str, object]:
+def language_detection_metrics(proxy: pd.DataFrame) -> dict[str, object]:
     raw_codes = []
     started = time.perf_counter()
     for text in proxy["text"].astype(str):
-        raw_codes.append(detect_language_code(text, prefix_chars=prefix_chars))
+        raw_codes.append(detect_language_code(text))
     elapsed = time.perf_counter() - started
     mapped = [code if code in LANGUAGE_MODELS else "en" for code in raw_codes]
     truth = proxy["language"].astype(str).tolist()
-    es_raw = pd.Series([code for code, language in zip(raw_codes, truth) if language == "es"]).value_counts().to_dict()
+    es_raw = pd.Series(
+        [code for code, language in zip(raw_codes, truth) if language == "es"]
+    ).value_counts().to_dict()
     return {
-        "prefix_chars": prefix_chars,
         "docs_per_sec": len(proxy) / elapsed,
         "accuracy": accuracy_score(truth, mapped),
         "es_raw_code_counts": es_raw,
@@ -170,102 +171,103 @@ def tagging_speed(
     *,
     words: int,
     call_batch_size: int,
-    pipe_batch_size: int,
-    n_process: int,
+    parallel_languages: bool,
 ) -> float:
-    tagger = DocumentTagger(pipe_batch_size=pipe_batch_size, n_process=n_process)
-    texts = [canonical_window(text, words) for text in proxy["text"].astype(str)]
+    tagger = DocumentTagger(
+        pipe_batch_size=128,
+        n_process=1,
+        window_words=words,
+        parallel_languages=parallel_languages,
+    )
+    texts = proxy["text"].astype(str).tolist()
     languages = proxy["language"].astype(str).tolist()
     warm_count = min(call_batch_size, len(texts))
     tagger.tag_batch(texts[:warm_count], languages[:warm_count])
     started = time.perf_counter()
     for start in range(0, len(texts), call_batch_size):
-        tagger.tag_batch(texts[start : start + call_batch_size], languages[start : start + call_batch_size])
+        tagger.tag_batch(
+            texts[start : start + call_batch_size],
+            languages[start : start + call_batch_size],
+        )
     return len(texts) / (time.perf_counter() - started)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--windows", type=int, nargs="+", default=[100, 150, 200])
-    parser.add_argument("--timing-per-language", type=int, default=500)
-    parser.add_argument("--detection-prefixes", type=int, nargs="+", default=[300, 600, 1000])
-    parser.add_argument("--call-batch-sizes", type=int, nargs="+", default=[64, 256])
-    parser.add_argument("--tag-n-process", type=int, nargs="+", default=[1, 2, 4])
-    parser.add_argument("--pipe-batch-size", type=int, default=128)
+    parser.add_argument("--timing-per-language", type=int, default=250)
+    parser.add_argument("--call-batch-size", type=int, default=256)
     args = parser.parse_args()
 
     config = DatasetConfig(data_home=ROOT / "data/raw_documents", output_dir=ROOT / "data/processed_data")
     selection = category_selection_summary(config)
     selected = selection[selection["selected"]].copy()
-    selected_categories = selected["category"].tolist()
-    print("\n=== Frozen category-selection rule ===")
-    print("Sort by cleaned TRAIN count descending, then category name; take the minimal prefix whose cleaned EN train+test total reaches >= 11000.")
+    print("\n=== Frozen category selection ===")
     print(selected.to_string(index=False))
-    print("selected categories:", selected_categories)
     print("selected cleaned source total:", int(selected["clean_total"].sum()))
 
-    train, validation, _ = fetch_english_dataset(config)
-    print("\n=== Baseline validation curve on FINAL selected categories (EN only) ===")
-    baseline = baseline_curve(train, validation, args.windows)
+    tokenizer = _load_marian_tokenizer(TranslationConfig().model_name)
+    train, validation, test = fetch_english_dataset(config)
+    train, train_cleanup = apply_frozen_cleanup(train, tokenizer)
+    validation, validation_cleanup = apply_frozen_cleanup(validation, tokenizer)
+    test, test_cleanup = apply_frozen_cleanup(test, tokenizer)
+
+    print("\n=== Frozen garbage transform ===")
+    print(
+        f"train-calibrated rule: raw line >= {GARBAGE_LINE_MIN_CHARS} chars and "
+        f">= {GARBAGE_TOKENS_PER_WORD:.1f} Marian tokens/word"
+    )
+    print("train:", train_cleanup)
+    print("validation:", validation_cleanup)
+    print("test:", test_cleanup)
+
+    print("\n=== Baseline validation verification after frozen garbage cleanup ===")
+    baseline = baseline_curve(train, validation)
     print(baseline.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
-    row_150 = baseline[baseline["window_words"] == str(FROZEN_WINDOW_WORDS)]
-    if not row_150.empty:
-        loss = float(row_150["accuracy_loss_pp_vs_full"].iloc[0])
-        print(f"frozen canonical window candidate: {FROZEN_WINDOW_WORDS} words (loss {loss:.4f} pp; limit <= 1.0 pp)")
+    frozen = baseline[baseline["window_words"] == str(CLASSIFICATION_WINDOW_WORDS)].iloc[0]
+    print(
+        f"frozen classification window: {CLASSIFICATION_WINDOW_WORDS} words; "
+        f"loss={float(frozen['accuracy_loss_pp_vs_full']):.4f} pp"
+    )
 
-    print("\n=== Marian document token/word diagnostics on selected TRAIN only ===")
-    translation_model = TranslationConfig().model_name
-    quantiles, worst = garbage_diagnostics(train, translation_model)
-    print("tokens_per_word quantiles:")
-    print(quantiles.to_string(float_format=lambda value: f"{value:.4f}"))
-    print("\nworst document-level tokenization outliers:")
-    print(worst.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
-
-    print("\n=== Marian line-level token-density diagnostics before normalization ===")
-    line_quantiles, line_worst = encoded_line_diagnostics(config, selected_categories, translation_model)
-    print("tokens_per_word quantiles for raw lines >=40 chars:")
-    print(line_quantiles.to_string(float_format=lambda value: f"{value:.4f}"))
-    print("\nworst raw-line outliers:")
-    print(line_worst.to_string(index=False, float_format=lambda value: f"{value:.4f}"))
+    print("\n=== Translation input budget after cleanup + frozen window ===")
+    print(translation_budget_summary([train, validation, test], tokenizer))
 
     proxy = _load_timing_proxy(args.timing_per_language)
     if proxy is None:
-        print("\n=== Timing proxy unavailable ===")
-        print("Existing processed EN+ES CSVs were not found; run timing later, but do NOT regenerate translations yet.")
+        print("\nTiming proxy unavailable; existing EN+ES processed CSVs are required for the last speed probe.")
         return
 
-    print("\n=== Language detection prefix sweep (current EN/ES proxy) ===")
-    detection_rows = []
-    for prefix_chars in args.detection_prefixes:
-        result = language_detection_metrics(proxy, prefix_chars)
-        detection_rows.append({k: v for k, v in result.items() if k != "es_raw_code_counts"})
-        print(
-            f"prefix={prefix_chars}: accuracy={result['accuracy']:.4f} docs/sec={result['docs_per_sec']:.2f} "
-            f"ES raw={result['es_raw_code_counts']}"
-        )
+    print(f"\n=== Language detection at frozen {LANGUAGE_DETECTION_PREFIX_CHARS}-char prefix ===")
+    detection = language_detection_metrics(proxy)
+    print(f"accuracy: {detection['accuracy']:.4f}")
+    print(f"docs/sec: {detection['docs_per_sec']:.2f}")
+    print("ES raw detector codes:", detection["es_raw_code_counts"])
 
-    print(f"\n=== spaCy fast-path throughput at frozen {FROZEN_WINDOW_WORDS}-word window ===")
+    print("\n=== Tagging-window sweep, Windows-safe n_process=1 ===")
     rows = []
-    for call_batch_size in args.call_batch_sizes:
-        for n_process in args.tag_n_process:
+    for words in TAGGING_WINDOWS:
+        for parallel in (False, True):
             speed = tagging_speed(
                 proxy,
-                words=FROZEN_WINDOW_WORDS,
-                call_batch_size=call_batch_size,
-                pipe_batch_size=args.pipe_batch_size,
-                n_process=n_process,
+                words=words,
+                call_batch_size=args.call_batch_size,
+                parallel_languages=parallel,
             )
+            sequential_with_detection = 1.0 / (1.0 / speed + 1.0 / float(detection["docs_per_sec"]))
             rows.append(
                 {
-                    "call_batch_size": call_batch_size,
-                    "pipe_batch_size": args.pipe_batch_size,
-                    "n_process": n_process,
+                    "tagging_window_words": words,
+                    "parallel_languages": parallel,
                     "tagging_docs_per_sec": speed,
+                    "detection_plus_tagging_docs_per_sec": sequential_with_detection,
                 }
             )
-    tagging = pd.DataFrame(rows).sort_values("tagging_docs_per_sec", ascending=False)
-    print(tagging.to_string(index=False, float_format=lambda value: f"{value:.2f}"))
-    print("\nUse the best production-like row to decide whether CPU tagging can satisfy the end-to-end budget before regeneration.")
+    result = pd.DataFrame(rows).sort_values(
+        ["tagging_window_words", "parallel_languages"],
+        ascending=[False, True],
+    )
+    print(result.to_string(index=False, float_format=lambda value: f"{value:.2f}"))
+    print("\nClassifier time is not included; use a margin above 100 docs/s before full regeneration.")
 
 
 if __name__ == "__main__":
