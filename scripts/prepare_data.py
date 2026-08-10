@@ -39,7 +39,7 @@ def _prepare_split(
     for _, row in frame.iterrows():
         text, removed = prepare_source_text(
             str(row["_raw_text"]),
-            translator.token_count,
+            translator.content_token_count,
             max_words=CLASSIFICATION_WINDOW_WORDS,
         )
         removed_lines += removed
