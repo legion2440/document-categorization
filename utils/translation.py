@@ -1,12 +1,10 @@
-"""Offline English-to-Spanish augmentation using a TensorFlow MarianMT checkpoint."""
+"""Offline English-to-Spanish augmentation using MarianMT with PyTorch/CUDA."""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 
-os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
-
 from utils.text_preprocessing import truncate_for_translation
+
 
 @dataclass(frozen=True)
 class TranslationConfig:
@@ -20,11 +18,20 @@ class EnglishSpanishTranslator:
     def __init__(self, config: TranslationConfig | None = None):
         self.config = config or TranslationConfig()
         try:
-            from transformers import AutoTokenizer, TFMarianMTModel
+            import torch
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError("Install requirements before running translation") from exc
+
+        self.torch = torch
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(self.config.model_name)
-        self.model = TFMarianMTModel.from_pretrained(self.config.model_name)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(self.config.model_name)
+        self.model.to(self.device)
+        self.model.eval()
+
+        device_name = torch.cuda.get_device_name(0) if self.device.type == "cuda" else "CPU"
+        print(f"[translation] backend=PyTorch device={self.device.type} ({device_name})")
 
     def translate(self, texts: list[str]) -> list[str]:
         result: list[str] = []
@@ -32,11 +39,16 @@ class EnglishSpanishTranslator:
             batch = [truncate_for_translation(t) for t in texts[start : start + self.config.batch_size]]
             encoded = self.tokenizer(
                 batch,
-                return_tensors="tf",
+                return_tensors="pt",
                 padding=True,
                 truncation=True,
                 max_length=self.config.max_input_tokens,
             )
-            generated = self.model.generate(**encoded, max_new_tokens=self.config.max_new_tokens)
-            result.extend(self.tokenizer.batch_decode(generated, skip_special_tokens=True))
+            encoded = {name: tensor.to(self.device) for name, tensor in encoded.items()}
+            with self.torch.inference_mode():
+                generated = self.model.generate(
+                    **encoded,
+                    max_new_tokens=self.config.max_new_tokens,
+                )
+            result.extend(self.tokenizer.batch_decode(generated.cpu(), skip_special_tokens=True))
         return result
