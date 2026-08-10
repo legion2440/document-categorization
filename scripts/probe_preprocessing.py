@@ -21,7 +21,7 @@ from utils.text_preprocessing import (
     GARBAGE_LINE_MIN_CHARS,
     GARBAGE_TOKENS_PER_WORD,
     canonical_window,
-    remove_token_dense_lines,
+    remove_token_dense_lines_batch,
 )
 from utils.translation import TranslationConfig
 
@@ -36,15 +36,17 @@ def _load_marian_tokenizer(model_name: str):
     return tokenizer
 
 
-def _content_token_count(tokenizer, text: str) -> int:
-    return len(
-        tokenizer(
-            text,
-            add_special_tokens=False,
-            truncation=False,
-            verbose=False,
-        )["input_ids"]
-    )
+def _content_token_counts(tokenizer, texts: list[str]) -> list[int]:
+    if not texts:
+        return []
+    encoded = tokenizer(
+        texts,
+        add_special_tokens=False,
+        truncation=False,
+        padding=False,
+        verbose=False,
+    )["input_ids"]
+    return [len(token_ids) for token_ids in encoded]
 
 
 def _input_token_count(tokenizer, text: str) -> int:
@@ -59,16 +61,14 @@ def _input_token_count(tokenizer, text: str) -> int:
 
 
 def apply_frozen_cleanup(frame: pd.DataFrame, tokenizer) -> tuple[pd.DataFrame, dict[str, int]]:
+    cleaned_raws, removed_counts = remove_token_dense_lines_batch(
+        frame["_raw_text"].astype(str).tolist(),
+        lambda texts: _content_token_counts(tokenizer, texts),
+    )
     rows = []
-    removed_lines = 0
     dropped_documents = 0
-    for _, row in frame.iterrows():
-        cleaned, removed = remove_token_dense_lines(
-            str(row["_raw_text"]),
-            lambda text: _content_token_count(tokenizer, text),
-        )
-        removed_lines += removed
-        text = canonical_window(cleaned, None)
+    for (_, row), cleaned_raw in zip(frame.iterrows(), cleaned_raws):
+        text = canonical_window(cleaned_raw, None)
         if not text:
             dropped_documents += 1
             continue
@@ -76,7 +76,7 @@ def apply_frozen_cleanup(frame: pd.DataFrame, tokenizer) -> tuple[pd.DataFrame, 
         current["text"] = text
         rows.append(current)
     return pd.DataFrame(rows).reset_index(drop=True), {
-        "removed_lines": removed_lines,
+        "removed_lines": int(sum(removed_counts)),
         "dropped_documents": dropped_documents,
     }
 
