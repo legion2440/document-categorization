@@ -1,4 +1,4 @@
-from utils.text_preprocessing import canonical_window, normalize_text, truncate_for_translation
+from utils.text_preprocessing import canonical_window, normalize_text, remove_token_dense_lines
 
 
 def test_normalize_text_handles_html_urls_email_and_whitespace():
@@ -6,11 +6,23 @@ def test_normalize_text_handles_html_urls_email_and_whitespace():
     assert result == "A B <URL> <EMAIL>"
 
 
-def test_canonical_window_is_the_explicit_word_bound():
+def test_canonical_window_is_the_single_word_bound():
     assert canonical_window("one  two\nthree four", 3) == "one two three"
 
 
-def test_truncate_translation_input_is_bounded():
-    result = truncate_for_translation("word " * 100, max_chars=40)
-    assert len(result) <= 40
-    assert not result.endswith(" ")
+def test_token_dense_line_cleanup_preserves_normal_prose():
+    text = "normal prose stays here\n" + ("-=" * 30) + "\nsecond normal line"
+
+    def token_count(line: str) -> int:
+        return 100 if "-=" in line else len(line.split())
+
+    cleaned, removed = remove_token_dense_lines(
+        text,
+        token_count,
+        min_chars=40,
+        max_tokens_per_word=20.0,
+    )
+    assert removed == 1
+    assert "normal prose stays here" in cleaned
+    assert "second normal line" in cleaned
+    assert "-=" not in cleaned
