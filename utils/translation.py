@@ -57,7 +57,13 @@ class EnglishSpanishTranslator:
         print(f"[translation] backend=PyTorch device={self.device.type} ({device_name})")
 
     def token_count(self, text: str) -> int:
-        return len(self.tokenizer(normalize_text(text), add_special_tokens=True, truncation=False)["input_ids"])
+        encoded = self.tokenizer(
+            normalize_text(text),
+            add_special_tokens=True,
+            truncation=False,
+            verbose=False,
+        )
+        return len(encoded["input_ids"])
 
     def _chunks(self, text: str) -> list[str]:
         clean = normalize_text(text)
@@ -90,6 +96,9 @@ class EnglishSpanishTranslator:
             raise TranslationCoverageError("Explicit translation chunking failed to cover the input")
         return chunks
 
+    def chunk_count(self, text: str) -> int:
+        return len(self._chunks(text))
+
     def _verify_eos(self, generated) -> None:
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id
@@ -112,13 +121,22 @@ class EnglishSpanishTranslator:
         for document_index, text in enumerate(texts):
             chunks = self._chunks(text)
             chunk_counts.append(len(chunks))
-            chunk_rows.extend((document_index, chunk_index, chunk) for chunk_index, chunk in enumerate(chunks))
+            chunk_rows.extend(
+                (document_index, chunk_index, chunk)
+                for chunk_index, chunk in enumerate(chunks)
+            )
 
         translated_chunks: dict[tuple[int, int], str] = {}
         for start in range(0, len(chunk_rows), self.config.batch_size):
             rows = chunk_rows[start : start + self.config.batch_size]
             batch = [row[2] for row in rows]
-            encoded = self.tokenizer(batch, return_tensors="pt", padding=True, truncation=False)
+            encoded = self.tokenizer(
+                batch,
+                return_tensors="pt",
+                padding=True,
+                truncation=False,
+                verbose=False,
+            )
             lengths = encoded["attention_mask"].sum(dim=1).tolist()
             if any(int(length) > self.config.max_input_tokens for length in lengths):
                 raise TranslationCoverageError("Tokenizer input exceeded the explicit Marian token budget")
@@ -128,7 +146,10 @@ class EnglishSpanishTranslator:
             self._verify_eos(generated)
             decoded = self.tokenizer.batch_decode(generated.detach().cpu(), skip_special_tokens=True)
             for row, translated in zip(rows, decoded):
-                translated_chunks[(row[0], row[1])] = translated.strip()
+                translated = translated.strip()
+                if not translated:
+                    raise TranslationCoverageError("Translation produced an empty output chunk")
+                translated_chunks[(row[0], row[1])] = translated
 
         output = []
         for document_index, expected_chunks in enumerate(chunk_counts):
