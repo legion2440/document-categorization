@@ -39,10 +39,13 @@ def build_model(num_labels: int, config: ClassifierConfig):
 
     tf.keras.utils.set_random_seed(config.random_seed)
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
+    # This checkpoint publishes native TensorFlow weights. Loading them directly
+    # avoids the unnecessary PyTorch safetensors -> TensorFlow conversion path.
     model = TFAutoModelForSequenceClassification.from_pretrained(
         config.model_name,
         num_labels=num_labels,
         ignore_mismatched_sizes=True,
+        use_safetensors=False,
     )
     optimizer = tf_keras.optimizers.Adam(learning_rate=config.learning_rate)
     loss = tf_keras.losses.SparseCategoricalCrossentropy(from_logits=True)
