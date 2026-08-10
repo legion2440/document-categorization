@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Evaluate accuracy/F1, per-language metrics and real pipeline throughput."""
+"""Evaluate accuracy/F1, language detection and true end-to-end throughput."""
 from __future__ import annotations
 
 import json
@@ -22,24 +22,29 @@ def main() -> None:
     pipeline = DocumentCategorizationPipeline(ROOT / "models/checkpoints")
 
     warm = test.head(min(32, len(test)))
-    pipeline.process_batch(warm["text"].tolist(), warm["language"].tolist())
+    pipeline.process_batch(warm["text"].tolist())
 
     predictions = []
     started = time.perf_counter()
-    batch_size = 64
+    batch_size = 256
     for start in range(0, len(test), batch_size):
         chunk = test.iloc[start : start + batch_size]
-        predictions.extend(pipeline.process_batch(chunk["text"].tolist(), chunk["language"].tolist()))
+        predictions.extend(pipeline.process_batch(chunk["text"].tolist()))
     elapsed = time.perf_counter() - started
 
     predicted_labels = [p.category for p in predictions]
+    detected_languages = [p.language for p in predictions]
     accuracy = float(accuracy_score(test["label"], predicted_labels))
     f1 = float(f1_score(test["label"], predicted_labels, average="macro"))
     speed = float(len(test) / elapsed)
+    detection_accuracy = float(accuracy_score(test["language"], detected_languages))
+
     per_language = {}
     for language, group in test.groupby("language"):
         idx = group.index.to_list()
-        per_language[language] = float(accuracy_score(group["label"], [predicted_labels[i] for i in idx]))
+        per_language[language] = float(
+            accuracy_score(group["label"], [predicted_labels[i] for i in idx])
+        )
 
     baseline_model = joblib.load(ROOT / "models/checkpoints/baseline.joblib")
     baseline_pred = baseline_model.predict(test["text"])
@@ -49,21 +54,26 @@ def main() -> None:
         "classification_accuracy": accuracy,
         "f1_score_macro": f1,
         "processing_speed_docs_per_sec": speed,
-        "languages_supported": sorted(per_language),
+        "language_detection_accuracy": detection_accuracy,
+        "languages_supported": sorted(test["language"].unique().tolist()),
         "per_language_accuracy": per_language,
         "baseline_accuracy": baseline_accuracy,
         "accuracy_improvement_over_baseline": accuracy - baseline_accuracy,
         "test_documents": int(len(test)),
+        "test_source_documents": int(test["pair_id"].nunique()) if "pair_id" in test else None,
     }
     reports = ROOT / "reports"
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "performance_metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
 
     examples = test.head(100).copy()
+    examples["detected_language"] = detected_languages[: len(examples)]
     examples["predicted_category"] = predicted_labels[: len(examples)]
     examples["confidence"] = [p.confidence for p in predictions[: len(examples)]]
     examples["tags"] = ["|".join(p.tags) for p in predictions[: len(examples)]]
-    examples["entities"] = [json.dumps(p.entities, ensure_ascii=False) for p in predictions[: len(examples)]]
+    examples["entities"] = [
+        json.dumps(p.entities, ensure_ascii=False) for p in predictions[: len(examples)]
+    ]
     examples.to_csv(reports / "example_predictions.csv", index=False)
 
     print(json.dumps(metrics, indent=2))
