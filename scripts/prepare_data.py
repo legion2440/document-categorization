@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from utils.data_loader import DatasetConfig, dataset_summary, fetch_english_dataset, persist_splits
-from utils.text_preprocessing import canonical_window
+from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, prepare_source_text
 from utils.translation import EnglishSpanishTranslator, TranslationConfig, translation_cache_key
 
 CACHE_COLUMNS = ("cache_key", "pair_id", "text")
@@ -27,6 +27,29 @@ def _load_cache(cache_path: Path) -> pd.DataFrame:
             f"Legacy translation cache detected at {cache_path}. Delete data/processed_data/translation_cache before regeneration."
         )
     return cached[list(CACHE_COLUMNS)].drop_duplicates("cache_key", keep="last")
+
+
+def _prepare_split(
+    frame: pd.DataFrame,
+    translator: EnglishSpanishTranslator,
+) -> tuple[pd.DataFrame, int, int]:
+    rows = []
+    removed_lines = 0
+    dropped_documents = 0
+    for _, row in frame.iterrows():
+        text, removed = prepare_source_text(
+            str(row["_raw_text"]),
+            translator.token_count,
+            max_words=CLASSIFICATION_WINDOW_WORDS,
+        )
+        removed_lines += removed
+        if not text:
+            dropped_documents += 1
+            continue
+        current = row.drop(labels=["_raw_text"]).to_dict()
+        current["text"] = text
+        rows.append(current)
+    return pd.DataFrame(rows), removed_lines, dropped_documents
 
 
 def augment_spanish(
@@ -82,27 +105,37 @@ def augment_spanish(
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--translation-batch-size", type=int, default=16)
-    parser.add_argument("--canonical-window-words", type=int)
-    parser.add_argument("--english-only", action="store_true", help="Selection/debug only; does not satisfy multilingual audit requirements")
+    parser.add_argument(
+        "--english-only",
+        action="store_true",
+        help="Selection/debug only; does not satisfy multilingual audit requirements",
+    )
     args = parser.parse_args()
 
     config = DatasetConfig(data_home=ROOT / "data/raw_documents", output_dir=ROOT / "data/processed_data")
     train, validation, test = fetch_english_dataset(config)
     splits = {"train": train, "validation": validation, "test": test}
 
-    if not args.english_only:
-        if args.canonical_window_words is None:
-            raise SystemExit("--canonical-window-words is required for multilingual regeneration; freeze it with the preprocessing probe first")
-        for name, frame in splits.items():
-            current = frame.copy()
-            current["text"] = current["text"].map(lambda text: canonical_window(str(text), args.canonical_window_words))
-            splits[name] = current
-
+    if args.english_only:
+        for name, frame in list(splits.items()):
+            splits[name] = frame.drop(columns=["_raw_text"], errors="ignore")
+    else:
         translator = EnglishSpanishTranslator(TranslationConfig(batch_size=args.translation_batch_size))
+        for name, frame in list(splits.items()):
+            prepared, removed_lines, dropped_documents = _prepare_split(frame, translator)
+            splits[name] = prepared
+            print(
+                f"[{name}] frozen preprocessing: window={CLASSIFICATION_WINDOW_WORDS} words, "
+                f"removed_garbage_lines={removed_lines}, dropped_empty_documents={dropped_documents}"
+            )
+
         cache_dir = config.output_dir / "translation_cache"
         for name, frame in list(splits.items()):
             spanish = augment_spanish(frame, name, cache_dir, translator)
-            splits[name] = pd.concat([frame, spanish], ignore_index=True).sample(frac=1, random_state=42).reset_index(drop=True)
+            splits[name] = pd.concat([frame, spanish], ignore_index=True).sample(
+                frac=1,
+                random_state=42,
+            ).reset_index(drop=True)
 
     persist_splits(splits, config.output_dir)
     summary = dataset_summary(splits.values())
