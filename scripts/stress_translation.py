@@ -12,7 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from utils.data_loader import DatasetConfig, fetch_english_dataset
-from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, prepare_source_text
+from utils.text_preprocessing import (
+    CLASSIFICATION_WINDOW_WORDS,
+    canonical_window,
+    remove_token_dense_lines_batch,
+)
 from utils.translation import EnglishSpanishTranslator, TranslationConfig
 
 
@@ -23,40 +27,43 @@ def main() -> None:
     args = parser.parse_args()
 
     config = DatasetConfig(data_home=ROOT / "data/raw_documents", output_dir=ROOT / "data/processed_data")
-    splits = fetch_english_dataset(config)
+    frames = fetch_english_dataset(config)
+    source = pd.concat(frames, ignore_index=True)
     translator = EnglishSpanishTranslator(TranslationConfig(batch_size=args.translation_batch_size))
+
+    cleaned_raws, removed_counts = remove_token_dense_lines_batch(
+        source["_raw_text"].astype(str).tolist(),
+        translator.content_token_counts,
+    )
 
     rows = []
     dropped = 0
-    for frame in splits:
-        for _, row in frame.iterrows():
-            text, removed_lines = prepare_source_text(
-                str(row["_raw_text"]),
-                translator.content_token_count,
-                max_words=CLASSIFICATION_WINDOW_WORDS,
-            )
-            if not text:
-                dropped += 1
-                continue
-            words = max(1, len(text.split()))
-            input_tokens = translator.token_count(text)
-            rows.append(
-                {
-                    "pair_id": row["pair_id"],
-                    "text": text,
-                    "words": words,
-                    "input_tokens": input_tokens,
-                    "tokens_per_word": input_tokens / words,
-                    "chunks": translator.chunk_count(text),
-                    "removed_lines": removed_lines,
-                }
-            )
+    for (_, row), cleaned_raw, removed_lines in zip(source.iterrows(), cleaned_raws, removed_counts):
+        text = canonical_window(cleaned_raw, CLASSIFICATION_WINDOW_WORDS)
+        if not text:
+            dropped += 1
+            continue
+        rows.append(
+            {
+                "pair_id": row["pair_id"],
+                "text": text,
+                "words": max(1, len(text.split())),
+                "removed_lines": removed_lines,
+            }
+        )
 
     diagnostics = pd.DataFrame(rows)
+    diagnostics["input_tokens"] = translator.token_counts(diagnostics["text"].tolist())
+    diagnostics["tokens_per_word"] = diagnostics["input_tokens"] / diagnostics["words"]
+
     by_length = diagnostics.nlargest(args.per_axis, ["input_tokens", "tokens_per_word"])
     by_density = diagnostics.nlargest(args.per_axis, ["tokens_per_word", "input_tokens"])
     heavy = pd.concat([by_length, by_density], ignore_index=True).drop_duplicates("pair_id")
-    heavy = heavy.sort_values(["chunks", "input_tokens", "tokens_per_word"], ascending=False).reset_index(drop=True)
+    heavy["chunks"] = heavy["text"].map(translator.chunk_count)
+    heavy = heavy.sort_values(
+        ["chunks", "input_tokens", "tokens_per_word"],
+        ascending=False,
+    ).reset_index(drop=True)
 
     print(f"frozen classification window: {CLASSIFICATION_WINDOW_WORDS} words")
     print(f"documents surviving cleanup: {len(diagnostics)}; dropped after cleanup: {dropped}")
