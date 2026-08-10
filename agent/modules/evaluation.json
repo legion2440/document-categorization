@@ -1,9 +1,10 @@
 {
   "schema_version": 1,
   "module_id": "evaluation",
-  "purpose": "Metrics, throughput benchmark, report generation and audit validation",
+  "purpose": "Metrics, throughput benchmark, preprocessing probe, report generation and audit validation",
   "paths": [
     {"path": "scripts/evaluate.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/probe_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/validate_project.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/run_pipeline.py", "lifecycle": "implemented", "provenance": "authored"}
   ],
