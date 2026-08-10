@@ -56,6 +56,15 @@ class EnglishSpanishTranslator:
         self.model.eval()
         print(f"[translation] backend=PyTorch device={self.device.type} ({device_name})")
 
+    def content_token_count(self, text: str) -> int:
+        encoded = self.tokenizer(
+            normalize_text(text),
+            add_special_tokens=False,
+            truncation=False,
+            verbose=False,
+        )
+        return len(encoded["input_ids"])
+
     def token_count(self, text: str) -> int:
         encoded = self.tokenizer(
             normalize_text(text),
