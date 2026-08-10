@@ -30,12 +30,19 @@ def _load_spacy(language: str):
     if not model_name:
         raise ValueError(f"Unsupported language: {language}")
     try:
-        # Keyword extraction needs lemma/POS information and NER, but not dependency parsing.
-        return spacy.load(model_name, exclude=["parser"])
+        nlp = spacy.load(model_name)
     except OSError as exc:
         raise RuntimeError(
             f"spaCy model {model_name!r} is missing. Run `python scripts/download_models.py`."
         ) from exc
+
+    # The tagging contract needs tokenization, lexical attributes and NER. Surface-form
+    # keyword ranking does not require POS tagging, parsing or lemmatization, so keep
+    # only the components needed by the NER path.
+    for component in tuple(nlp.pipe_names):
+        if component not in {"tok2vec", "ner"}:
+            nlp.disable_pipe(component)
+    return nlp
 
 
 def detect_language_code(text: str, prefix_chars: int = LANGUAGE_DETECTION_PREFIX_CHARS) -> str:
@@ -57,14 +64,27 @@ def detect_language(text: str) -> str:
 
 
 class DocumentTagger:
-    def __init__(self, max_keyword_tags: int = 6, max_entity_tags: int = 8):
+    def __init__(
+        self,
+        max_keyword_tags: int = 6,
+        max_entity_tags: int = 8,
+        *,
+        pipe_batch_size: int = 128,
+        n_process: int = 1,
+    ):
+        if pipe_batch_size <= 0:
+            raise ValueError("pipe_batch_size must be positive")
+        if n_process == 0 or n_process < -1:
+            raise ValueError("n_process must be -1 or a positive integer")
         self.max_keyword_tags = max_keyword_tags
         self.max_entity_tags = max_entity_tags
+        self.pipe_batch_size = pipe_batch_size
+        self.n_process = n_process
 
     @staticmethod
     def _keyword_candidates(doc) -> list[str]:
         tokens = [
-            token.lemma_.lower().strip()
+            token.text.casefold().strip()
             for token in doc
             if token.is_alpha and not token.is_stop and len(token.text) >= 3
         ]
@@ -94,7 +114,11 @@ class DocumentTagger:
         for language in sorted(set(languages)):
             indices = [i for i, lang in enumerate(languages) if lang == language]
             nlp = _load_spacy(language)
-            docs = nlp.pipe((texts[i] for i in indices), batch_size=64)
+            docs = nlp.pipe(
+                (texts[i] for i in indices),
+                batch_size=self.pipe_batch_size,
+                n_process=self.n_process,
+            )
             for idx, doc in zip(indices, docs):
                 entities = [Entity(ent.text.strip(), ent.label_) for ent in doc.ents if ent.text.strip()]
                 entity_tags = list(dict.fromkeys(ent.text.casefold() for ent in entities))
