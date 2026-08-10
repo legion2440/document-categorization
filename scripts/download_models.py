@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+
 os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 
 
 def main() -> None:
     import spacy.cli
-    from transformers import AutoTokenizer, TFAutoModelForSequenceClassification, TFMarianMTModel
+    import torch
+    from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, TFAutoModelForSequenceClassification
 
     for model in ("en_core_web_sm", "es_core_news_sm"):
         print(f"Downloading spaCy model: {model}")
@@ -27,9 +29,10 @@ def main() -> None:
     )
 
     translator = "Helsinki-NLP/opus-mt-en-es"
-    print(f"Caching translation model: {translator}")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Caching translation model: {translator} (PyTorch, device={device})")
     AutoTokenizer.from_pretrained(translator)
-    TFMarianMTModel.from_pretrained(translator)
+    AutoModelForSeq2SeqLM.from_pretrained(translator)
 
 
 if __name__ == "__main__":
