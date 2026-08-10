@@ -65,6 +65,51 @@ def remove_token_dense_lines(
     return "\n".join(kept), removed
 
 
+def remove_token_dense_lines_batch(
+    texts: list[str],
+    token_counts: Callable[[list[str]], list[int]],
+    *,
+    batch_size: int = 256,
+    min_chars: int = GARBAGE_LINE_MIN_CHARS,
+    max_tokens_per_word: float = GARBAGE_TOKENS_PER_WORD,
+) -> tuple[list[str], list[int]]:
+    if batch_size <= 0 or min_chars <= 0 or max_tokens_per_word <= 0:
+        raise ValueError("garbage-cleanup batch settings must be positive")
+    if any(not isinstance(text, str) for text in texts):
+        raise TypeError("all texts must be strings")
+
+    lines_by_document = [text.splitlines() for text in texts]
+    candidates: list[tuple[int, int, str, int]] = []
+    for document_index, lines in enumerate(lines_by_document):
+        for line_index, line in enumerate(lines):
+            sample = _WS_RE.sub(" ", line).strip()
+            if len(sample) < min_chars:
+                continue
+            candidates.append(
+                (document_index, line_index, sample, max(1, len(sample.split())))
+            )
+
+    removed_indices = [set() for _ in texts]
+    for start in range(0, len(candidates), batch_size):
+        batch = candidates[start : start + batch_size]
+        counts = token_counts([candidate[2] for candidate in batch])
+        if len(counts) != len(batch):
+            raise RuntimeError("token counter did not return one count per candidate line")
+        for candidate, token_count in zip(batch, counts):
+            document_index, line_index, _, words = candidate
+            if token_count / words >= max_tokens_per_word:
+                removed_indices[document_index].add(line_index)
+
+    cleaned = []
+    removed_counts = []
+    for lines, removed in zip(lines_by_document, removed_indices):
+        cleaned.append(
+            "\n".join(line for line_index, line in enumerate(lines) if line_index not in removed)
+        )
+        removed_counts.append(len(removed))
+    return cleaned, removed_counts
+
+
 def prepare_source_text(
     raw_text: str,
     token_count: Callable[[str], int],
