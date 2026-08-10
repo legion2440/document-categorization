@@ -1,14 +1,15 @@
 {
   "schema_version": 1,
   "module_id": "data-pipeline",
-  "purpose": "Download, normalize, split, translate and persist multilingual 20 Newsgroups data",
+  "purpose": "Download, clean, select, split, translate and persist multilingual 20 Newsgroups data",
   "paths": [
     {"path": "scripts/prepare_data.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/data_loader.py", "lifecycle": "implemented", "provenance": "authored"},
-    {"path": "utils/text_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"}
+    {"path": "utils/text_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "utils/translation.py", "lifecycle": "implemented", "provenance": "authored"}
   ],
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
-  "tests": ["tests/test_preprocessing.py"],
+  "tests": ["tests/test_preprocessing.py", "tests/test_data_loader.py"],
   "runtime_evidence": []
 }
