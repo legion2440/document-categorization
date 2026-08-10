@@ -49,15 +49,17 @@ def _content_token_counts(tokenizer, texts: list[str]) -> list[int]:
     return [len(token_ids) for token_ids in encoded]
 
 
-def _input_token_count(tokenizer, text: str) -> int:
-    return len(
-        tokenizer(
-            text,
-            add_special_tokens=True,
-            truncation=False,
-            verbose=False,
-        )["input_ids"]
-    )
+def _input_token_counts(tokenizer, texts: list[str]) -> list[int]:
+    if not texts:
+        return []
+    encoded = tokenizer(
+        texts,
+        add_special_tokens=True,
+        truncation=False,
+        padding=False,
+        verbose=False,
+    )["input_ids"]
+    return [len(token_ids) for token_ids in encoded]
 
 
 def apply_frozen_cleanup(frame: pd.DataFrame, tokenizer) -> tuple[pd.DataFrame, dict[str, int]]:
@@ -111,10 +113,10 @@ def baseline_curve(train: pd.DataFrame, validation: pd.DataFrame) -> pd.DataFram
 
 
 def translation_budget_summary(frames: list[pd.DataFrame], tokenizer) -> dict[str, float | int]:
-    lengths = []
+    texts = []
     for frame in frames:
-        for text in _window(frame["text"], CLASSIFICATION_WINDOW_WORDS):
-            lengths.append(_input_token_count(tokenizer, text))
+        texts.extend(_window(frame["text"], CLASSIFICATION_WINDOW_WORDS))
+    lengths = _input_token_counts(tokenizer, texts)
     series = pd.Series(lengths, dtype=float)
     budget = TranslationConfig().max_input_tokens
     return {
