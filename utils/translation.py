@@ -71,14 +71,20 @@ class EnglishSpanishTranslator:
     def content_token_count(self, text: str) -> int:
         return self.content_token_counts([text])[0]
 
-    def token_count(self, text: str) -> int:
+    def token_counts(self, texts: list[str]) -> list[int]:
+        if not texts:
+            return []
         encoded = self.tokenizer(
-            normalize_text(text),
+            [normalize_text(text) for text in texts],
             add_special_tokens=True,
             truncation=False,
+            padding=False,
             verbose=False,
-        )
-        return len(encoded["input_ids"])
+        )["input_ids"]
+        return [len(token_ids) for token_ids in encoded]
+
+    def token_count(self, text: str) -> int:
+        return self.token_counts([text])[0]
 
     def _chunks(self, text: str) -> list[str]:
         clean = normalize_text(text)
