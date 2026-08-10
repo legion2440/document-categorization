@@ -1,6 +1,9 @@
-# Runtime / training stack (tested design target: Python 3.11 on Linux/WSL2)
+# Runtime / training stack
+# PyTorch cu126 is used for MarianMT translation on Windows/Linux NVIDIA GPUs.
+--extra-index-url https://download.pytorch.org/whl/cu126
 tensorflow==2.21.0
 tf-keras==2.21.0
+torch==2.12.1+cu126
 transformers==4.57.1
 spacy==3.8.14
 streamlit==1.60.0
