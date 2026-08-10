@@ -10,6 +10,7 @@ from utils.text_preprocessing import canonical_window
 
 LANGUAGE_MODELS = {"en": "en_core_web_sm", "es": "es_core_news_sm"}
 LANGUAGE_DETECTION_PREFIX_CHARS = 600
+TAGGING_WINDOW_WORDS = 75
 
 
 @dataclass(frozen=True)
@@ -71,7 +72,7 @@ class DocumentTagger:
         *,
         pipe_batch_size: int = 128,
         n_process: int = 1,
-        window_words: int | None = None,
+        window_words: int | None = TAGGING_WINDOW_WORDS,
         parallel_languages: bool = True,
     ):
         if pipe_batch_size <= 0:
