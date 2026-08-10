@@ -19,6 +19,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-download-models", action="store_true")
     parser.add_argument("--skip-prepare-data", action="store_true")
+    parser.add_argument("--canonical-window-words", type=int)
     parser.add_argument("--optimize", action="store_true")
     args = parser.parse_args()
 
@@ -26,7 +27,14 @@ def main() -> None:
     if not args.skip_download_models:
         run(py, "scripts/download_models.py")
     if not args.skip_prepare_data:
-        run(py, "scripts/prepare_data.py")
+        if args.canonical_window_words is None:
+            parser.error("--canonical-window-words is required unless --skip-prepare-data is used")
+        run(
+            py,
+            "scripts/prepare_data.py",
+            "--canonical-window-words",
+            str(args.canonical_window_words),
+        )
     run(py, "scripts/train.py")
     run(py, "scripts/evaluate.py")
     if args.optimize:
