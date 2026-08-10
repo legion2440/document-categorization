@@ -11,7 +11,8 @@ os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 
 from models.tagger import DocumentTagger, detect_language
 from models.text_classifier import ClassifierConfig, build_model, load_runtime_config
-from utils.text_preprocessing import normalize_text
+from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, canonical_window
+
 
 @dataclass(frozen=True)
 class Prediction:
@@ -62,12 +63,12 @@ class DocumentCategorizationPipeline:
         return ids, confidence
 
     def process_batch(self, texts: list[str], languages: list[str] | None = None) -> list[Prediction]:
-        clean = [normalize_text(text) for text in texts]
-        if any(not text for text in clean):
+        prepared = [canonical_window(text, CLASSIFICATION_WINDOW_WORDS) for text in texts]
+        if any(not text for text in prepared):
             raise ValueError("Documents must contain non-empty text")
-        languages = languages or [detect_language(text) for text in clean]
-        ids, confidence = self._classify_batch(clean)
-        tagging = self.tagger.tag_batch(clean, languages)
+        languages = languages or [detect_language(text) for text in prepared]
+        ids, confidence = self._classify_batch(prepared)
+        tagging = self.tagger.tag_batch(prepared, languages)
         return [
             Prediction(
                 category=self.labels[int(label_id)],
