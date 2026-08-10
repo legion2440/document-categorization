@@ -6,11 +6,14 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 LANGUAGE_MODELS = {"en": "en_core_web_sm", "es": "es_core_news_sm"}
+LANGUAGE_DETECTION_PREFIX_CHARS = 300
+
 
 @dataclass(frozen=True)
 class Entity:
     text: str
     label: str
+
 
 @dataclass(frozen=True)
 class TaggingResult:
@@ -27,21 +30,29 @@ def _load_spacy(language: str):
     if not model_name:
         raise ValueError(f"Unsupported language: {language}")
     try:
-        return spacy.load(model_name)
+        # Keyword extraction needs lemma/POS information and NER, but not dependency parsing.
+        return spacy.load(model_name, exclude=["parser"])
     except OSError as exc:
         raise RuntimeError(
             f"spaCy model {model_name!r} is missing. Run `python scripts/download_models.py`."
         ) from exc
 
 
-def detect_language(text: str) -> str:
+def detect_language_code(text: str, prefix_chars: int = LANGUAGE_DETECTION_PREFIX_CHARS) -> str:
     from langdetect import DetectorFactory, LangDetectException, detect
 
+    if prefix_chars <= 0:
+        raise ValueError("prefix_chars must be positive")
     DetectorFactory.seed = 42
+    sample = text[:prefix_chars]
     try:
-        language = detect(text)
+        return detect(sample)
     except LangDetectException:
-        return "en"
+        return "unknown"
+
+
+def detect_language(text: str) -> str:
+    language = detect_language_code(text)
     return language if language in LANGUAGE_MODELS else "en"
 
 
@@ -93,4 +104,6 @@ class DocumentTagger:
                     tags=entity_tags[: self.max_entity_tags] + keywords[: self.max_keyword_tags],
                     entities=entities,
                 )
+        if any(item is None for item in output):
+            raise RuntimeError("spaCy batch tagging did not produce one result per input document")
         return [item for item in output if item is not None]
