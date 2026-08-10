@@ -12,7 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from utils.data_loader import DatasetConfig, dataset_summary, fetch_english_dataset, persist_splits
-from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, prepare_source_text
+from utils.text_preprocessing import (
+    CLASSIFICATION_WINDOW_WORDS,
+    canonical_window,
+    remove_token_dense_lines_batch,
+)
 from utils.translation import EnglishSpanishTranslator, TranslationConfig, translation_cache_key
 
 CACHE_COLUMNS = ("cache_key", "pair_id", "text")
@@ -33,23 +37,23 @@ def _prepare_split(
     frame: pd.DataFrame,
     translator: EnglishSpanishTranslator,
 ) -> tuple[pd.DataFrame, int, int]:
+    raw_texts = frame["_raw_text"].astype(str).tolist()
+    cleaned_raws, removed_counts = remove_token_dense_lines_batch(
+        raw_texts,
+        translator.content_token_counts,
+    )
+
     rows = []
-    removed_lines = 0
     dropped_documents = 0
-    for _, row in frame.iterrows():
-        text, removed = prepare_source_text(
-            str(row["_raw_text"]),
-            translator.content_token_count,
-            max_words=CLASSIFICATION_WINDOW_WORDS,
-        )
-        removed_lines += removed
+    for (_, row), cleaned_raw in zip(frame.iterrows(), cleaned_raws):
+        text = canonical_window(cleaned_raw, CLASSIFICATION_WINDOW_WORDS)
         if not text:
             dropped_documents += 1
             continue
         current = row.drop(labels=["_raw_text"]).to_dict()
         current["text"] = text
         rows.append(current)
-    return pd.DataFrame(rows), removed_lines, dropped_documents
+    return pd.DataFrame(rows), int(sum(removed_counts)), dropped_documents
 
 
 def augment_spanish(
