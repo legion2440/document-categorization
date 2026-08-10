@@ -30,7 +30,7 @@ def _source_key(filename: str) -> str:
     return f"{source.parent.name}/{source.name}"
 
 
-def _frame_from_bunch(bunch, split: str) -> pd.DataFrame:
+def _frame_from_bunch(bunch, split: str, *, include_raw: bool = False) -> pd.DataFrame:
     rows = []
     for idx, raw in enumerate(bunch.data):
         text = normalize_text(raw)
@@ -39,32 +39,45 @@ def _frame_from_bunch(bunch, split: str) -> pd.DataFrame:
         target_id = int(bunch.target[idx])
         label = bunch.target_names[target_id]
         pair_id = _source_key(bunch.filenames[idx])
-        rows.append(
-            {
-                "document_id": f"en:{pair_id}",
-                "pair_id": pair_id,
-                "text": text,
-                "label": label,
-                "label_id": target_id,
-                "language": "en",
-                "source_language": "en",
-                "is_translation": False,
-                "source_dataset": "20_newsgroups",
-                "split": split,
-            }
-        )
+        row = {
+            "document_id": f"en:{pair_id}",
+            "pair_id": pair_id,
+            "text": text,
+            "label": label,
+            "label_id": target_id,
+            "language": "en",
+            "source_language": "en",
+            "is_translation": False,
+            "source_dataset": "20_newsgroups",
+            "split": split,
+        }
+        if include_raw:
+            row["_raw_text"] = str(raw)
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
-def _fetch_all_cleaned(config: DatasetConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _fetch_all_cleaned(
+    config: DatasetConfig,
+    *,
+    include_raw: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     common = dict(
         shuffle=True,
         random_state=config.random_state,
         data_home=str(config.data_home),
         remove=REMOVE_PARTS,
     )
-    train = _frame_from_bunch(fetch_20newsgroups(subset="train", **common), "train")
-    test = _frame_from_bunch(fetch_20newsgroups(subset="test", **common), "test")
+    train = _frame_from_bunch(
+        fetch_20newsgroups(subset="train", **common),
+        "train",
+        include_raw=include_raw,
+    )
+    test = _frame_from_bunch(
+        fetch_20newsgroups(subset="test", **common),
+        "test",
+        include_raw=include_raw,
+    )
     return train, test
 
 
@@ -127,7 +140,7 @@ def _remap_labels(frame: pd.DataFrame, categories: tuple[str, ...]) -> pd.DataFr
 
 def fetch_english_dataset(config: DatasetConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Create official-test train/validation/test splits from the cleaned English corpus."""
-    train_full, test = _fetch_all_cleaned(config)
+    train_full, test = _fetch_all_cleaned(config, include_raw=True)
     categories = config.categories or select_categories_by_cleaned_count(
         train_full, test, config.source_target
     )
@@ -167,7 +180,8 @@ def persist_splits(splits: dict[str, pd.DataFrame], output_dir: Path | str) -> N
     output = Path(output_dir)
     output.mkdir(parents=True, exist_ok=True)
     for name, frame in splits.items():
-        frame.to_csv(output / f"{name}.csv", index=False)
+        internal = [column for column in frame.columns if column.startswith("_")]
+        frame.drop(columns=internal, errors="ignore").to_csv(output / f"{name}.csv", index=False)
 
 
 def load_processed_splits(output_dir: Path | str = "data/processed_data") -> dict[str, pd.DataFrame]:
