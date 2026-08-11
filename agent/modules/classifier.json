@@ -7,7 +7,8 @@
     {"path": "models/baseline.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/transfer_learning.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/model_optimization.py", "lifecycle": "implemented", "provenance": "authored"},
-    {"path": "scripts/train.py", "lifecycle": "implemented", "provenance": "authored"}
+    {"path": "scripts/train.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/smoke_classifier.py", "lifecycle": "implemented", "provenance": "authored"}
   ],
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
