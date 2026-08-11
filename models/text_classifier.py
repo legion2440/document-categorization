@@ -9,11 +9,13 @@ from pathlib import Path
 os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 
 DEFAULT_MODEL = "distilbert/distilbert-base-multilingual-cased"
+MODEL_MAX_TOKENS = 512
+
 
 @dataclass(frozen=True)
 class ClassifierConfig:
     model_name: str = DEFAULT_MODEL
-    max_length: int = 256
+    max_length: int = MODEL_MAX_TOKENS
     learning_rate: float = 3e-5
     epochs: int = 5
     batch_size: int = 16
@@ -26,6 +28,40 @@ class ClassifierConfig:
             raise ValueError("Learning rate must be between 2e-5 and 5e-5")
         if self.max_length <= 0 or self.batch_size <= 0:
             raise ValueError("max_length and batch_size must be positive")
+        if self.max_length > MODEL_MAX_TOKENS:
+            raise ValueError(f"DistilBERT supports at most {MODEL_MAX_TOKENS} input tokens")
+
+
+def tokenize_with_budget(tokenizer, texts: list[str], max_length: int) -> tuple[dict[str, list[list[int]]], int]:
+    """Tokenize without implicit truncation, then apply the explicit model token budget."""
+    if max_length <= 1:
+        raise ValueError("max_length must leave room for special tokens")
+    encoded = tokenizer(
+        texts,
+        add_special_tokens=True,
+        padding=False,
+        truncation=False,
+        return_attention_mask=True,
+        verbose=False,
+    )
+    input_ids: list[list[int]] = []
+    attention_masks: list[list[int]] = []
+    truncated_documents = 0
+    sep_token_id = tokenizer.sep_token_id
+
+    for ids, mask in zip(encoded["input_ids"], encoded["attention_mask"]):
+        current_ids = list(ids)
+        current_mask = list(mask)
+        if len(current_ids) > max_length:
+            truncated_documents += 1
+            current_ids = current_ids[:max_length]
+            current_mask = current_mask[:max_length]
+            if sep_token_id is not None:
+                current_ids[-1] = int(sep_token_id)
+        input_ids.append(current_ids)
+        attention_masks.append(current_mask)
+
+    return {"input_ids": input_ids, "attention_mask": attention_masks}, truncated_documents
 
 
 def build_model(num_labels: int, config: ClassifierConfig):
@@ -39,8 +75,6 @@ def build_model(num_labels: int, config: ClassifierConfig):
 
     tf.keras.utils.set_random_seed(config.random_seed)
     tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-    # This checkpoint publishes native TensorFlow weights. Loading them directly
-    # avoids the unnecessary PyTorch safetensors -> TensorFlow conversion path.
     model = TFAutoModelForSequenceClassification.from_pretrained(
         config.model_name,
         num_labels=num_labels,
