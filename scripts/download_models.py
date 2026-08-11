@@ -19,12 +19,8 @@ def main() -> None:
     classifier = "distilbert/distilbert-base-multilingual-cased"
     print(f"Caching classifier base model: {classifier}")
     AutoTokenizer.from_pretrained(classifier)
-    # Prefer the checkpoint's native TensorFlow weights instead of converting
-    # PyTorch safetensors into TensorFlow at load time.
     TFAutoModelForSequenceClassification.from_pretrained(
         classifier,
-        num_labels=8,
-        ignore_mismatched_sizes=True,
         use_safetensors=False,
     )
 
