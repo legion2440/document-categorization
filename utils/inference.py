@@ -10,7 +10,12 @@ import numpy as np
 os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 
 from models.tagger import DocumentTagger, detect_language
-from models.text_classifier import ClassifierConfig, build_model, load_runtime_config
+from models.text_classifier import (
+    ClassifierConfig,
+    build_model,
+    load_runtime_config,
+    tokenize_with_budget,
+)
 from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, canonical_window
 
 
@@ -49,13 +54,8 @@ class DocumentCategorizationPipeline:
     def _classify_batch(self, texts: list[str]) -> tuple[np.ndarray, np.ndarray]:
         import tensorflow as tf
 
-        encoded = self.tokenizer(
-            texts,
-            padding=True,
-            truncation=True,
-            max_length=self.config.max_length,
-            return_tensors="tf",
-        )
+        tokenized, _ = tokenize_with_budget(self.tokenizer, texts, self.config.max_length)
+        encoded = self.tokenizer.pad(tokenized, padding=True, return_tensors="tf")
         logits = self.model(dict(encoded), training=False).logits
         probabilities = tf.nn.softmax(logits, axis=-1).numpy()
         ids = probabilities.argmax(axis=-1)
