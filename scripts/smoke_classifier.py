@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Exercise one worst-case DistilBERT training batch before the full five-epoch run."""
+"""Exercise one worst-case classifier training batch before a full fine-tuning run."""
 from __future__ import annotations
 
+import argparse
 import faulthandler
 from pathlib import Path
 import sys
@@ -33,6 +34,22 @@ def _memory_snapshot() -> str:
 
 
 def main() -> None:
+    defaults = ClassifierConfig()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model-name", default=defaults.model_name)
+    parser.add_argument("--batch-size", type=int, default=defaults.batch_size)
+    parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
+    parser.add_argument("--max-length", type=int, default=defaults.max_length)
+    args = parser.parse_args()
+
+    config = ClassifierConfig(
+        model_name=args.model_name,
+        batch_size=args.batch_size,
+        learning_rate=args.learning_rate,
+        max_length=args.max_length,
+    )
+    config.validate()
+
     faulthandler.enable(all_threads=True)
     _stage("importing TensorFlow")
     import tensorflow as tf
@@ -52,13 +69,12 @@ def main() -> None:
     splits = load_processed_splits(ROOT / "data/processed_data")
     train = splits["train"].reset_index(drop=True)
     labels = sorted(train["label"].unique().tolist())
-    config = ClassifierConfig()
     _stage(
-        f"train rows={len(train)}, labels={len(labels)}, batch_size={config.batch_size}, "
-        f"max_length={config.max_length}; {_memory_snapshot()}"
+        f"train rows={len(train)}, labels={len(labels)}, model={config.model_name}, "
+        f"batch_size={config.batch_size}, max_length={config.max_length}; {_memory_snapshot()}"
     )
 
-    _stage("building tokenizer and TensorFlow DistilBERT model")
+    _stage(f"building tokenizer and TensorFlow model: {config.model_name}")
     tokenizer, model = build_model(len(labels), config)
     _stage(f"model ready; {_memory_snapshot()}")
 
@@ -79,7 +95,7 @@ def main() -> None:
     selected_texts = [texts[int(index)] for index in selected]
     selected_labels = train.loc[selected, "label_id"].astype(int).to_numpy(dtype=np.int32)
 
-    _stage("applying explicit 512-token budget and padding worst-case batch")
+    _stage(f"applying explicit {config.max_length}-token budget and padding worst-case batch")
     budgeted, truncated = tokenize_with_budget(tokenizer, selected_texts, config.max_length)
     encoded = tokenizer.pad(budgeted, padding=True, return_tensors="tf")
     print("Original token lengths:", sorted(lengths[selected].tolist()), flush=True)
