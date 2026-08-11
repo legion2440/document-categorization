@@ -10,10 +10,14 @@ PREPROCESSING_VERSION = "2026-08-10-v3"
 CLASSIFICATION_WINDOW_WORDS = 150
 GARBAGE_LINE_MIN_CHARS = 40
 GARBAGE_TOKENS_PER_WORD = 20.0
+STRUCTURAL_RUN_MIN_CHARS = 8
+STRUCTURAL_LINE_MIN_CHARS = 20
+STRUCTURAL_LINE_MAX_ALNUM_FRACTION = 0.10
 
 _WS_RE = re.compile(r"\s+")
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 _EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b")
+_STRUCTURAL_RUN_RE = re.compile(rf"[^\w\s<>]{{{STRUCTURAL_RUN_MIN_CHARS},}}", re.UNICODE)
 
 
 def normalize_text(text: str) -> str:
@@ -37,6 +41,28 @@ def canonical_window(text: str, max_words: int | None = CLASSIFICATION_WINDOW_WO
         raise ValueError("max_words must be positive or None")
     words = clean.split()
     return " ".join(words[:max_words])
+
+
+def remove_structural_noise(text: str) -> tuple[str, int, int]:
+    """Strip separator runs and discard punctuation-only ASCII-art lines."""
+    if not isinstance(text, str):
+        raise TypeError("text must be a string")
+
+    kept: list[str] = []
+    removed_runs = 0
+    removed_lines = 0
+    for line in text.splitlines():
+        line, run_count = _STRUCTURAL_RUN_RE.subn(" ", line)
+        removed_runs += run_count
+        sample = _WS_RE.sub(" ", line).strip()
+        if len(sample) >= STRUCTURAL_LINE_MIN_CHARS:
+            nonspace = [char for char in sample if not char.isspace()]
+            alnum = sum(char.isalnum() for char in nonspace)
+            if nonspace and alnum / len(nonspace) <= STRUCTURAL_LINE_MAX_ALNUM_FRACTION:
+                removed_lines += 1
+                continue
+        kept.append(line)
+    return "\n".join(kept), removed_runs, removed_lines
 
 
 def remove_token_dense_lines(
@@ -116,5 +142,6 @@ def prepare_source_text(
     *,
     max_words: int = CLASSIFICATION_WINDOW_WORDS,
 ) -> tuple[str, int]:
-    cleaned, removed_lines = remove_token_dense_lines(raw_text, token_count)
-    return canonical_window(cleaned, max_words), removed_lines
+    structural, _, structural_lines = remove_structural_noise(raw_text)
+    cleaned, removed_lines = remove_token_dense_lines(structural, token_count)
+    return canonical_window(cleaned, max_words), structural_lines + removed_lines
