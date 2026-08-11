@@ -1,7 +1,9 @@
 # Runtime / training stack
+# TensorFlow GPU fine-tuning runs on Linux/WSL2. Native Windows remains CPU-only for TF >=2.11.
 # PyTorch cu126 is used for MarianMT translation on Windows/Linux NVIDIA GPUs.
 --extra-index-url https://download.pytorch.org/whl/cu126
-tensorflow==2.21.0
+tensorflow[and-cuda]==2.21.0; platform_system == "Linux"
+tensorflow==2.21.0; platform_system != "Linux"
 tf-keras==2.21.0
 torch==2.12.1+cu126
 transformers==4.57.1
