@@ -1,6 +1,7 @@
 from utils.text_preprocessing import (
     canonical_window,
     normalize_text,
+    remove_structural_noise,
     remove_token_dense_lines,
     remove_token_dense_lines_batch,
 )
@@ -13,6 +14,19 @@ def test_normalize_text_handles_html_urls_email_and_whitespace():
 
 def test_canonical_window_is_the_single_word_bound():
     assert canonical_window("one  two\nthree four", 3) == "one two three"
+
+
+def test_structural_noise_removes_runs_but_preserves_embedded_content():
+    text = (
+        "************************************************ COLOR 19'' ZENITH TV for SALE *************************************************\n"
+        + " ." * 30
+        + "\nnormal prose stays here"
+    )
+    cleaned, removed_runs, removed_lines = remove_structural_noise(text)
+    assert removed_runs == 2
+    assert removed_lines == 1
+    assert "COLOR 19'' ZENITH TV for SALE" in cleaned
+    assert "normal prose stays here" in cleaned
 
 
 def test_token_dense_line_cleanup_preserves_normal_prose():
