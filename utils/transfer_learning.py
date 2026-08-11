@@ -10,21 +10,73 @@ import pandas as pd
 
 os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 
-from models.text_classifier import ClassifierConfig, build_model, save_runtime_config
+from models.text_classifier import (
+    ClassifierConfig,
+    build_model,
+    save_runtime_config,
+    tokenize_with_budget,
+)
+
+BUCKET_BOUNDARIES = (64, 128, 192, 256, 384)
 
 
-def _encode(tokenizer, frame: pd.DataFrame, config: ClassifierConfig):
+def _bucketed_dataset(
+    tokenizer,
+    frame: pd.DataFrame,
+    config: ClassifierConfig,
+    *,
+    shuffle: bool,
+):
     import tensorflow as tf
 
-    encoded = tokenizer(
-        frame["text"].astype(str).tolist(),
-        padding=True,
-        truncation=True,
-        max_length=config.max_length,
-        return_tensors="tf",
+    texts = frame["text"].astype(str).tolist()
+    labels = frame["label_id"].astype(int).tolist()
+    encoded, truncated_documents = tokenize_with_budget(tokenizer, texts, config.max_length)
+    input_ids = encoded["input_ids"]
+    attention_masks = encoded["attention_mask"]
+
+    def generator():
+        for ids, mask, label in zip(input_ids, attention_masks, labels):
+            yield (
+                {
+                    "input_ids": np.asarray(ids, dtype=np.int32),
+                    "attention_mask": np.asarray(mask, dtype=np.int32),
+                },
+                np.int32(label),
+            )
+
+    dataset = tf.data.Dataset.from_generator(
+        generator,
+        output_signature=(
+            {
+                "input_ids": tf.TensorSpec(shape=(None,), dtype=tf.int32),
+                "attention_mask": tf.TensorSpec(shape=(None,), dtype=tf.int32),
+            },
+            tf.TensorSpec(shape=(), dtype=tf.int32),
+        ),
     )
-    labels = tf.convert_to_tensor(frame["label_id"].astype(int).to_numpy(), dtype=tf.int32)
-    return tf.data.Dataset.from_tensor_slices((dict(encoded), labels))
+    if shuffle:
+        dataset = dataset.shuffle(min(len(frame), 10_000), seed=config.random_seed)
+
+    pad_token_id = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
+    dataset = dataset.bucket_by_sequence_length(
+        element_length_func=lambda features, label: tf.shape(features["input_ids"])[0],
+        bucket_boundaries=list(BUCKET_BOUNDARIES),
+        bucket_batch_sizes=[config.batch_size] * (len(BUCKET_BOUNDARIES) + 1),
+        padded_shapes=(
+            {"input_ids": [None], "attention_mask": [None]},
+            [],
+        ),
+        padding_values=(
+            {
+                "input_ids": np.int32(pad_token_id),
+                "attention_mask": np.int32(0),
+            },
+            np.int32(0),
+        ),
+        drop_remainder=False,
+    )
+    return dataset.prefetch(tf.data.AUTOTUNE), truncated_documents
 
 
 class EpochCheckpoint:
@@ -85,13 +137,31 @@ def train_transformer(
         raise ValueError("label_id mapping must be contiguous and alphabetically stable")
 
     tokenizer, model = build_model(num_labels=len(labels), config=config)
-    train_ds = (
-        _encode(tokenizer, train, config)
-        .shuffle(min(len(train), 10_000), seed=config.random_seed)
-        .batch(config.batch_size)
-        .prefetch(2)
+    train_ds, train_truncated = _bucketed_dataset(
+        tokenizer,
+        train,
+        config,
+        shuffle=True,
     )
-    val_ds = _encode(tokenizer, validation, config).batch(config.batch_size).prefetch(2)
+    val_ds, validation_truncated = _bucketed_dataset(
+        tokenizer,
+        validation,
+        config,
+        shuffle=False,
+    )
+    token_budget = {
+        "max_length": config.max_length,
+        "bucket_boundaries": list(BUCKET_BOUNDARIES),
+        "train_documents": len(train),
+        "validation_documents": len(validation),
+        "train_truncated_documents": train_truncated,
+        "validation_truncated_documents": validation_truncated,
+    }
+    (checkpoint_dir / "token_budget.json").write_text(
+        json.dumps(token_budget, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    print(f"Classifier token budget: {token_budget}")
 
     import tf_keras
 
