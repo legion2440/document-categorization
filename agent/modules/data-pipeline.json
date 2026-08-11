@@ -6,6 +6,7 @@
     {"path": "scripts/prepare_data.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/probe_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/stress_translation.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/preflight_dataset.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/data_loader.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/text_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/translation.py", "lifecycle": "implemented", "provenance": "authored"}
