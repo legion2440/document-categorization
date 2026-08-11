@@ -11,10 +11,17 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from utils.data_loader import DatasetConfig, dataset_summary, fetch_english_dataset, persist_splits
+from utils.data_loader import (
+    DatasetConfig,
+    dataset_summary,
+    fetch_english_dataset,
+    persist_splits,
+    remove_cross_split_text_leakage,
+)
 from utils.text_preprocessing import (
     CLASSIFICATION_WINDOW_WORDS,
     canonical_window,
+    remove_structural_noise,
     remove_token_dense_lines_batch,
 )
 from utils.translation import EnglishSpanishTranslator, TranslationConfig, translation_cache_key
@@ -36,10 +43,18 @@ def _load_cache(cache_path: Path) -> pd.DataFrame:
 def _prepare_split(
     frame: pd.DataFrame,
     translator: EnglishSpanishTranslator,
-) -> tuple[pd.DataFrame, int, int]:
-    raw_texts = frame["_raw_text"].astype(str).tolist()
-    cleaned_raws, removed_counts = remove_token_dense_lines_batch(
-        raw_texts,
+) -> tuple[pd.DataFrame, dict[str, int]]:
+    structural_cleaned: list[str] = []
+    structural_runs = 0
+    structural_lines = 0
+    for raw in frame["_raw_text"].astype(str):
+        cleaned, removed_runs, removed_lines = remove_structural_noise(raw)
+        structural_cleaned.append(cleaned)
+        structural_runs += removed_runs
+        structural_lines += removed_lines
+
+    cleaned_raws, token_dense_counts = remove_token_dense_lines_batch(
+        structural_cleaned,
         translator.content_token_counts,
     )
 
@@ -53,7 +68,18 @@ def _prepare_split(
         current = row.drop(labels=["_raw_text"]).to_dict()
         current["text"] = text
         rows.append(current)
-    return pd.DataFrame(rows), int(sum(removed_counts)), dropped_documents
+    stats = {
+        "removed_structural_runs": structural_runs,
+        "removed_structural_lines": structural_lines,
+        "removed_token_dense_lines": int(sum(token_dense_counts)),
+        "dropped_empty_documents": dropped_documents,
+    }
+    return pd.DataFrame(rows), stats
+
+
+def _finalize_spanish_text(text: str) -> str:
+    structural, _, _ = remove_structural_noise(str(text))
+    return canonical_window(structural, CLASSIFICATION_WINDOW_WORDS)
 
 
 def augment_spanish(
@@ -100,6 +126,11 @@ def augment_spanish(
     spanish["text"] = spanish_keys.map(cached_by_key)
     if spanish["text"].isna().any():
         raise RuntimeError(f"Incomplete Spanish translation cache for {split}")
+    spanish["text"] = spanish["text"].map(_finalize_spanish_text)
+    empty = spanish["text"].astype(str).str.strip().eq("")
+    if empty.any():
+        pair_ids = spanish.loc[empty, "pair_id"].astype(str).head(10).tolist()
+        raise RuntimeError(f"Spanish cleanup produced empty documents in {split}: {pair_ids}")
     spanish["language"] = "es"
     spanish["source_language"] = "en"
     spanish["is_translation"] = True
@@ -126,11 +157,11 @@ def main() -> None:
     else:
         translator = EnglishSpanishTranslator(TranslationConfig(batch_size=args.translation_batch_size))
         for name, frame in list(splits.items()):
-            prepared, removed_lines, dropped_documents = _prepare_split(frame, translator)
+            prepared, stats = _prepare_split(frame, translator)
             splits[name] = prepared
             print(
                 f"[{name}] frozen preprocessing: window={CLASSIFICATION_WINDOW_WORDS} words, "
-                f"removed_garbage_lines={removed_lines}, dropped_empty_documents={dropped_documents}"
+                f"stats={stats}"
             )
 
         cache_dir = config.output_dir / "translation_cache"
@@ -140,6 +171,12 @@ def main() -> None:
                 frac=1,
                 random_state=42,
             ).reset_index(drop=True)
+
+        splits, dropped_for_leakage = remove_cross_split_text_leakage(splits)
+        print(
+            "cross-split exact-text leakage policy (priority test > validation > train): "
+            f"dropped_pairs={dropped_for_leakage}"
+        )
 
     persist_splits(splits, config.output_dir)
     summary = dataset_summary(splits.values())
