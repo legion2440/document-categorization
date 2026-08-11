@@ -26,8 +26,10 @@ class DatasetConfig:
 
 
 def _source_key(filename: str) -> str:
-    source = Path(filename)
-    return f"{source.parent.name}/{source.name}"
+    parts = str(filename).replace("\\", "/").rstrip("/").split("/")
+    if len(parts) < 2:
+        raise ValueError(f"cannot derive category/message source key from {filename!r}")
+    return f"{parts[-2]}/{parts[-1]}"
 
 
 def _frame_from_bunch(bunch, split: str, *, include_raw: bool = False) -> pd.DataFrame:
