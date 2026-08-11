@@ -6,7 +6,12 @@ import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
+# This module is intentionally TensorFlow-only. Transformers otherwise discovers
+# the installed PyTorch stack too, which is unnecessary for classifier training
+# and can initialize Torch/Triton in the same process as TensorFlow CUDA.
+os.environ["TF_USE_LEGACY_KERAS"] = "1"
+os.environ["USE_TF"] = "1"
+os.environ["USE_TORCH"] = "0"
 
 DEFAULT_MODEL = "distilbert/distilbert-base-multilingual-cased"
 MODEL_MAX_TOKENS = 512
