@@ -88,7 +88,7 @@ def augment_spanish(
     cache_dir: Path,
     translator: EnglishSpanishTranslator,
     flush_every_batches: int = 20,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, set[str]]:
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_path = cache_dir / f"{split}_es_cache.csv"
     cached = _load_cache(cache_path)
@@ -126,15 +126,17 @@ def augment_spanish(
     spanish["text"] = spanish_keys.map(cached_by_key)
     if spanish["text"].isna().any():
         raise RuntimeError(f"Incomplete Spanish translation cache for {split}")
+
     spanish["text"] = spanish["text"].map(_finalize_spanish_text)
     empty = spanish["text"].astype(str).str.strip().eq("")
-    if empty.any():
-        pair_ids = spanish.loc[empty, "pair_id"].astype(str).head(10).tolist()
-        raise RuntimeError(f"Spanish cleanup produced empty documents in {split}: {pair_ids}")
+    dropped_pair_ids = set(spanish.loc[empty, "pair_id"].astype(str))
+    if dropped_pair_ids:
+        spanish = spanish[~spanish["pair_id"].astype(str).isin(dropped_pair_ids)].copy().reset_index(drop=True)
+
     spanish["language"] = "es"
     spanish["source_language"] = "en"
     spanish["is_translation"] = True
-    return spanish
+    return spanish, dropped_pair_ids
 
 
 def main() -> None:
@@ -166,7 +168,21 @@ def main() -> None:
 
         cache_dir = config.output_dir / "translation_cache"
         for name, frame in list(splits.items()):
-            spanish = augment_spanish(frame, name, cache_dir, translator)
+            spanish, dropped_after_spanish_cleanup = augment_spanish(
+                frame,
+                name,
+                cache_dir,
+                translator,
+            )
+            if dropped_after_spanish_cleanup:
+                frame = frame[
+                    ~frame["pair_id"].astype(str).isin(dropped_after_spanish_cleanup)
+                ].copy().reset_index(drop=True)
+                print(
+                    f"[{name}] dropped {len(dropped_after_spanish_cleanup)} EN/ES pairs "
+                    "because Spanish post-translation cleanup was empty: "
+                    f"{sorted(dropped_after_spanish_cleanup)}"
+                )
             splits[name] = pd.concat([frame, spanish], ignore_index=True).sample(
                 frac=1,
                 random_state=42,
