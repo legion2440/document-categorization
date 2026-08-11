@@ -1,4 +1,4 @@
-"""TensorFlow/Keras multilingual DistilBERT sequence classifier."""
+"""TensorFlow/Keras multilingual Transformer sequence classifier."""
 from __future__ import annotations
 
 import json
@@ -27,6 +27,8 @@ class ClassifierConfig:
     random_seed: int = 42
 
     def validate(self) -> None:
+        if not self.model_name.strip():
+            raise ValueError("model_name must be non-empty")
         if self.epochs < 5:
             raise ValueError("The assignment requires at least 5 fine-tuning epochs")
         if not 2e-5 <= self.learning_rate <= 5e-5:
@@ -34,7 +36,7 @@ class ClassifierConfig:
         if self.max_length <= 0 or self.batch_size <= 0:
             raise ValueError("max_length and batch_size must be positive")
         if self.max_length > MODEL_MAX_TOKENS:
-            raise ValueError(f"DistilBERT supports at most {MODEL_MAX_TOKENS} input tokens")
+            raise ValueError(f"Supported BERT-family classifiers use at most {MODEL_MAX_TOKENS} input tokens")
 
 
 def tokenize_with_budget(tokenizer, texts: list[str], max_length: int) -> tuple[dict[str, list[list[int]]], int]:
