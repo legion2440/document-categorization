@@ -17,11 +17,12 @@ from utils.transfer_learning import train_transformer
 
 
 def main() -> None:
+    defaults = ClassifierConfig()
     parser = argparse.ArgumentParser()
-    parser.add_argument("--epochs", type=int, default=5)
-    parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--learning-rate", type=float, default=3e-5)
-    parser.add_argument("--max-length", type=int, default=256)
+    parser.add_argument("--epochs", type=int, default=defaults.epochs)
+    parser.add_argument("--batch-size", type=int, default=defaults.batch_size)
+    parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
+    parser.add_argument("--max-length", type=int, default=defaults.max_length)
     args = parser.parse_args()
 
     splits = load_processed_splits(ROOT / "data/processed_data")
