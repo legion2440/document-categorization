@@ -20,6 +20,14 @@ from models.tagger import LANGUAGE_MODELS, DocumentTagger, detect_language_code
 from models.text_classifier import ClassifierConfig
 from utils.data_loader import dataset_summary, load_processed_splits, validate_pair_split_invariant
 
+PREVIEW_CHARS = 140
+INSPECTION_SAMPLE_LIMIT = 20
+
+
+def _preview(text: str, width: int = PREVIEW_CHARS) -> str:
+    compact = " ".join(str(text).split())
+    return compact if len(compact) <= width else compact[: width - 3] + "..."
+
 
 def _quantiles(values: pd.Series) -> dict[str, float]:
     return {
@@ -78,7 +86,48 @@ def validate_dataset(splits: dict[str, pd.DataFrame]) -> pd.DataFrame:
     return combined
 
 
-def print_split_and_duplicate_summary(splits: dict[str, pd.DataFrame], combined: pd.DataFrame) -> None:
+def _duplicate_examples(
+    left_name: str,
+    left: pd.DataFrame,
+    right_name: str,
+    right: pd.DataFrame,
+    overlap: set[str],
+    sample_limit: int,
+) -> pd.DataFrame:
+    if not overlap:
+        return pd.DataFrame()
+    ranked = sorted(((text, len(text.split())) for text in overlap), key=lambda item: (item[1], item[0]))
+    half = max(1, sample_limit // 2)
+    selected = ranked[:half] + ranked[-half:]
+    seen: set[str] = set()
+    rows = []
+    for text, words in selected:
+        if text in seen:
+            continue
+        seen.add(text)
+        left_row = left[left["text"].astype(str) == text].iloc[0]
+        right_row = right[right["text"].astype(str) == text].iloc[0]
+        rows.append(
+            {
+                "words": words,
+                f"{left_name}_pair": left_row["pair_id"],
+                f"{left_name}_lang": left_row["language"],
+                f"{left_name}_label": left_row["label"],
+                f"{right_name}_pair": right_row["pair_id"],
+                f"{right_name}_lang": right_row["language"],
+                f"{right_name}_label": right_row["label"],
+                "preview": _preview(text),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def print_split_and_duplicate_summary(
+    splits: dict[str, pd.DataFrame],
+    combined: pd.DataFrame,
+    *,
+    sample_limit: int = INSPECTION_SAMPLE_LIMIT,
+) -> None:
     print("\n=== Final dataset summary ===")
     print(dataset_summary(splits.values()))
     rows = []
@@ -98,19 +147,36 @@ def print_split_and_duplicate_summary(splits: dict[str, pd.DataFrame], combined:
 
     print("\n=== Cross-split exact-text intersections ===")
     names = list(splits)
-    for left_index, left in enumerate(names):
-        left_texts = set(splits[left]["text"].astype(str))
-        for right in names[left_index + 1 :]:
-            overlap = left_texts.intersection(set(splits[right]["text"].astype(str)))
-            print(f"{left} vs {right}: {len(overlap)} unique exact texts")
+    for left_index, left_name in enumerate(names):
+        left_frame = splits[left_name]
+        left_texts = set(left_frame["text"].astype(str))
+        for right_name in names[left_index + 1 :]:
+            right_frame = splits[right_name]
+            overlap = left_texts.intersection(set(right_frame["text"].astype(str)))
+            print(f"{left_name} vs {right_name}: {len(overlap)} unique exact texts")
+            examples = _duplicate_examples(
+                left_name,
+                left_frame,
+                right_name,
+                right_frame,
+                overlap,
+                sample_limit,
+            )
+            if not examples.empty:
+                print("shortest + longest overlap examples:")
+                print(examples.to_string(index=False))
 
     coverage = pd.crosstab(combined["label"], combined["language"])
     if not (coverage > 0).all().all():
         raise RuntimeError("some category is missing in a supported language")
 
 
-def print_length_and_translation_summary(combined: pd.DataFrame) -> None:
-    sample = combined[["pair_id", "language", "text", "_actual_split"]].copy()
+def print_length_and_translation_summary(
+    combined: pd.DataFrame,
+    *,
+    sample_limit: int = INSPECTION_SAMPLE_LIMIT,
+) -> None:
+    sample = combined[["pair_id", "language", "label", "text", "_actual_split"]].copy()
     sample["words"] = sample["text"].astype(str).str.split().str.len()
     sample["characters"] = sample["text"].astype(str).str.len()
 
@@ -122,19 +188,61 @@ def print_length_and_translation_summary(combined: pd.DataFrame) -> None:
             rows.append({"language": language, "measure": measure, **stats})
     print(pd.DataFrame(rows).to_string(index=False, float_format=lambda value: f"{value:.2f}"))
 
-    pivot_words = sample.pivot(index="pair_id", columns="language", values="words")
-    pivot_chars = sample.pivot(index="pair_id", columns="language", values="characters")
-    eligible = pivot_words["en"] >= 10
-    word_ratio = (pivot_words.loc[eligible, "es"] / pivot_words.loc[eligible, "en"]).astype(float)
-    char_ratio = (pivot_chars.loc[eligible, "es"] / pivot_chars.loc[eligible, "en"]).astype(float)
+    english = sample[sample["language"] == "en"].set_index("pair_id")
+    spanish = sample[sample["language"] == "es"].set_index("pair_id")
+    pairs = english[["label", "_actual_split", "text", "words", "characters"]].rename(
+        columns={
+            "text": "en_text",
+            "words": "en_words",
+            "characters": "en_characters",
+        }
+    ).join(
+        spanish[["text", "words", "characters"]].rename(
+            columns={
+                "text": "es_text",
+                "words": "es_words",
+                "characters": "es_characters",
+            }
+        ),
+        how="inner",
+    )
+    eligible = pairs["en_words"] >= 10
+    ratio_rows = pairs.loc[eligible].copy()
+    ratio_rows["word_ratio"] = ratio_rows["es_words"] / ratio_rows["en_words"]
+    ratio_rows["char_ratio"] = ratio_rows["es_characters"] / ratio_rows["en_characters"]
+
     print("\n=== EN -> ES translation length ratios (English source >=10 words) ===")
     print("pairs:", int(eligible.sum()))
-    print("word ratio:", _quantiles(word_ratio))
-    print("char ratio:", _quantiles(char_ratio))
-    print(
-        "word-ratio outliers <0.5 or >2.0:",
-        int(((word_ratio < 0.5) | (word_ratio > 2.0)).sum()),
-    )
+    print("word ratio:", _quantiles(ratio_rows["word_ratio"].astype(float)))
+    print("char ratio:", _quantiles(ratio_rows["char_ratio"].astype(float)))
+    outliers = ratio_rows[(ratio_rows["word_ratio"] < 0.5) | (ratio_rows["word_ratio"] > 2.0)].copy()
+    print("word-ratio outliers <0.5 or >2.0:", len(outliers))
+
+    if not outliers.empty:
+        half = max(1, sample_limit // 2)
+        selected = pd.concat(
+            [
+                outliers.nsmallest(half, "word_ratio"),
+                outliers.nlargest(half, "word_ratio"),
+            ]
+        ).loc[lambda frame: ~frame.index.duplicated(keep="first")]
+        display = selected.reset_index()[
+            [
+                "pair_id",
+                "_actual_split",
+                "label",
+                "en_words",
+                "es_words",
+                "word_ratio",
+                "char_ratio",
+                "en_text",
+                "es_text",
+            ]
+        ].copy()
+        display["en_preview"] = display.pop("en_text").map(_preview)
+        display["es_preview"] = display.pop("es_text").map(_preview)
+        print("lowest + highest translation-ratio examples:")
+        print(display.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
 
 
 def _token_lengths(tokenizer, texts: list[str], batch_size: int) -> list[int]:
@@ -290,15 +398,33 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--token-batch-size", type=int, default=512)
     parser.add_argument("--tagging-per-language", type=int, default=200)
+    parser.add_argument("--inspection-sample-limit", type=int, default=INSPECTION_SAMPLE_LIMIT)
     parser.add_argument("--skip-tagging", action="store_true")
+    parser.add_argument(
+        "--inspect-only",
+        action="store_true",
+        help="Print duplicate and translation-outlier examples without rerunning model-related checks",
+    )
     args = parser.parse_args()
-    if args.token_batch_size <= 0 or args.tagging_per_language <= 0:
+    if args.token_batch_size <= 0 or args.tagging_per_language <= 0 or args.inspection_sample_limit <= 0:
         raise SystemExit("batch/sample sizes must be positive")
 
     splits = load_processed_splits(ROOT / "data/processed_data")
     combined = validate_dataset(splits)
-    print_split_and_duplicate_summary(splits, combined)
-    print_length_and_translation_summary(combined)
+    print_split_and_duplicate_summary(
+        splits,
+        combined,
+        sample_limit=args.inspection_sample_limit,
+    )
+    print_length_and_translation_summary(
+        combined,
+        sample_limit=args.inspection_sample_limit,
+    )
+
+    if args.inspect_only:
+        print("\nINSPECTION COMPLETE. Review duplicate and translation-outlier examples before changing preprocessing.")
+        return
+
     print_distilbert_budget(splits, args.token_batch_size)
     print_language_detection(splits["validation"].reset_index(drop=True))
     print_bilingual_baseline(
