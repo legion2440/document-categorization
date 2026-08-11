@@ -175,6 +175,36 @@ def validate_pair_split_invariant(splits: dict[str, pd.DataFrame]) -> None:
         raise ValueError(f"{len(leaked)} EN/ES document pairs span multiple splits")
 
 
+def remove_cross_split_text_leakage(
+    splits: dict[str, pd.DataFrame],
+    *,
+    priority: tuple[str, ...] = ("test", "validation", "train"),
+) -> tuple[dict[str, pd.DataFrame], dict[str, int]]:
+    """Drop whole lower-priority pairs if any exact text occurs in a higher-priority split."""
+    missing = [name for name in priority if name not in splits]
+    if missing:
+        raise ValueError(f"missing splits required by leakage policy: {missing}")
+
+    cleaned = {name: frame.copy() for name, frame in splits.items()}
+    seen_texts: set[str] = set()
+    dropped: dict[str, int] = {}
+    for name in priority:
+        frame = cleaned[name]
+        pair_texts = frame.groupby("pair_id")["text"].agg(
+            lambda values: {normalize_text(str(value)) for value in values}
+        )
+        rejected = {
+            pair_id for pair_id, texts in pair_texts.items() if texts.intersection(seen_texts)
+        }
+        if rejected:
+            frame = frame[~frame["pair_id"].isin(rejected)].copy().reset_index(drop=True)
+        cleaned[name] = frame
+        dropped[name] = len(rejected)
+        seen_texts.update(normalize_text(str(value)) for value in frame["text"])
+
+    return cleaned, dropped
+
+
 def persist_splits(splits: dict[str, pd.DataFrame], output_dir: Path | str) -> None:
     validate_pair_split_invariant(splits)
     output = Path(output_dir)
