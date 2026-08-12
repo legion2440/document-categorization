@@ -4,6 +4,7 @@
   "purpose": "Metrics, throughput benchmark, preprocessing probe, report generation and audit validation",
   "paths": [
     {"path": "scripts/evaluate.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/evaluate_validation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/probe_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/validate_project.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/run_pipeline.py", "lifecycle": "implemented", "provenance": "authored"}
