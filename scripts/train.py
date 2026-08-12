@@ -46,6 +46,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=defaults.batch_size)
     parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
     parser.add_argument("--max-length", type=int, default=defaults.max_length)
+    parser.add_argument("--weight-decay", type=float, default=defaults.weight_decay)
+    parser.add_argument("--warmup-ratio", type=float, default=defaults.warmup_ratio)
+    parser.add_argument("--gradient-clip-norm", type=float, default=defaults.gradient_clip_norm)
     parser.add_argument("--checkpoint-dir", default="models/checkpoints")
     parser.add_argument(
         "--allow-cpu",
@@ -84,11 +87,16 @@ def main() -> None:
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         max_length=args.max_length,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio,
+        gradient_clip_norm=args.gradient_clip_norm,
     )
     print(
         f"Transformer config: model={config.model_name}, epochs={config.epochs}, "
         f"batch_size={config.batch_size}, learning_rate={config.learning_rate:g}, "
-        f"max_length={config.max_length}, checkpoint_dir={checkpoint_dir}"
+        f"max_length={config.max_length}, weight_decay={config.weight_decay:g}, "
+        f"warmup_ratio={config.warmup_ratio:g}, gradient_clip_norm={config.gradient_clip_norm:g}, "
+        f"checkpoint_dir={checkpoint_dir}"
     )
     train_transformer(splits["train"], splits["validation"], checkpoint_dir, config)
 
