@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -13,11 +14,18 @@ os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 from models.text_classifier import (
     ClassifierConfig,
     build_model,
+    compile_model,
     save_runtime_config,
     tokenize_with_budget,
 )
 
 BUCKET_BOUNDARIES = (64, 128, 192, 256, 384)
+
+
+def _bucket_batch_count(lengths: list[int], batch_size: int) -> int:
+    bucket_ids = np.searchsorted(np.asarray(BUCKET_BOUNDARIES), np.asarray(lengths), side="right")
+    counts = np.bincount(bucket_ids, minlength=len(BUCKET_BOUNDARIES) + 1)
+    return sum(math.ceil(int(count) / batch_size) for count in counts if count)
 
 
 def _bucketed_dataset(
@@ -34,6 +42,7 @@ def _bucketed_dataset(
     encoded, truncated_documents = tokenize_with_budget(tokenizer, texts, config.max_length)
     input_ids = encoded["input_ids"]
     attention_masks = encoded["attention_mask"]
+    batch_count = _bucket_batch_count([len(ids) for ids in input_ids], config.batch_size)
 
     def generator():
         for ids, mask, label in zip(input_ids, attention_masks, labels):
@@ -76,7 +85,7 @@ def _bucketed_dataset(
         ),
         drop_remainder=False,
     )
-    return dataset.prefetch(tf.data.AUTOTUNE), truncated_documents
+    return dataset.prefetch(tf.data.AUTOTUNE), truncated_documents, batch_count
 
 
 class EpochCheckpoint:
@@ -137,18 +146,21 @@ def train_transformer(
         raise ValueError("label_id mapping must be contiguous and alphabetically stable")
 
     tokenizer, model = build_model(num_labels=len(labels), config=config)
-    train_ds, train_truncated = _bucketed_dataset(
+    train_ds, train_truncated, train_batches = _bucketed_dataset(
         tokenizer,
         train,
         config,
         shuffle=True,
     )
-    val_ds, validation_truncated = _bucketed_dataset(
+    val_ds, validation_truncated, validation_batches = _bucketed_dataset(
         tokenizer,
         validation,
         config,
         shuffle=False,
     )
+    total_train_steps = train_batches * config.epochs
+    warmup_steps = compile_model(model, config, total_train_steps=total_train_steps)
+
     token_budget = {
         "max_length": config.max_length,
         "bucket_boundaries": list(BUCKET_BOUNDARIES),
@@ -156,12 +168,29 @@ def train_transformer(
         "validation_documents": len(validation),
         "train_truncated_documents": train_truncated,
         "validation_truncated_documents": validation_truncated,
+        "train_batches_per_epoch": train_batches,
+        "validation_batches_per_epoch": validation_batches,
     }
     (checkpoint_dir / "token_budget.json").write_text(
         json.dumps(token_budget, indent=2) + "\n",
         encoding="utf-8",
     )
+    optimizer_plan = {
+        "optimizer": "AdamW",
+        "peak_learning_rate": config.learning_rate,
+        "weight_decay": config.weight_decay,
+        "gradient_clip_norm": config.gradient_clip_norm,
+        "warmup_ratio": config.warmup_ratio,
+        "warmup_steps": warmup_steps,
+        "total_train_steps": total_train_steps,
+        "schedule": "linear_warmup_then_linear_decay_to_zero",
+    }
+    (checkpoint_dir / "optimizer_plan.json").write_text(
+        json.dumps(optimizer_plan, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print(f"Classifier token budget: {token_budget}")
+    print(f"Optimizer plan: {optimizer_plan}")
 
     import tf_keras
 
