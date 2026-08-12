@@ -21,6 +21,23 @@ def _resolve_output_dir(value: str) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
+def _configure_tensorflow(*, allow_cpu: bool) -> None:
+    import tensorflow as tf
+
+    gpus = tf.config.list_physical_devices("GPU")
+    print(f"TensorFlow GPUs: {gpus}")
+    if not gpus and not allow_cpu:
+        raise SystemExit(
+            "No TensorFlow GPU detected. Refusing full fine-tuning on CPU; "
+            "restore the CUDA library path or pass --allow-cpu explicitly."
+        )
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError:
+            pass
+
+
 def main() -> None:
     defaults = ClassifierConfig()
     parser = argparse.ArgumentParser()
@@ -30,7 +47,14 @@ def main() -> None:
     parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
     parser.add_argument("--max-length", type=int, default=defaults.max_length)
     parser.add_argument("--checkpoint-dir", default="models/checkpoints")
+    parser.add_argument(
+        "--allow-cpu",
+        action="store_true",
+        help="Explicitly permit full fine-tuning without a TensorFlow GPU",
+    )
     args = parser.parse_args()
+
+    _configure_tensorflow(allow_cpu=args.allow_cpu)
 
     checkpoint_dir = _resolve_output_dir(args.checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
