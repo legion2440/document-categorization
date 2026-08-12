@@ -13,7 +13,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from models.text_classifier import ClassifierConfig, build_model, tokenize_with_budget
+from models.text_classifier import ClassifierConfig, build_model, compile_model, tokenize_with_budget
 from utils.data_loader import load_processed_splits
 
 
@@ -40,6 +40,9 @@ def main() -> None:
     parser.add_argument("--batch-size", type=int, default=defaults.batch_size)
     parser.add_argument("--learning-rate", type=float, default=defaults.learning_rate)
     parser.add_argument("--max-length", type=int, default=defaults.max_length)
+    parser.add_argument("--weight-decay", type=float, default=defaults.weight_decay)
+    parser.add_argument("--warmup-ratio", type=float, default=defaults.warmup_ratio)
+    parser.add_argument("--gradient-clip-norm", type=float, default=defaults.gradient_clip_norm)
     args = parser.parse_args()
 
     config = ClassifierConfig(
@@ -47,6 +50,9 @@ def main() -> None:
         batch_size=args.batch_size,
         learning_rate=args.learning_rate,
         max_length=args.max_length,
+        weight_decay=args.weight_decay,
+        warmup_ratio=args.warmup_ratio,
+        gradient_clip_norm=args.gradient_clip_norm,
     )
     config.validate()
 
@@ -76,7 +82,13 @@ def main() -> None:
 
     _stage(f"building tokenizer and TensorFlow model: {config.model_name}")
     tokenizer, model = build_model(len(labels), config)
-    _stage(f"model ready; {_memory_snapshot()}")
+    smoke_total_steps = 10
+    warmup_steps = compile_model(model, config, total_train_steps=smoke_total_steps)
+    _stage(
+        f"model ready with scheduled AdamW: weight_decay={config.weight_decay:g}, "
+        f"warmup_steps={warmup_steps}/{smoke_total_steps}, "
+        f"clip_norm={config.gradient_clip_norm:g}; {_memory_snapshot()}"
+    )
 
     texts = train["text"].astype(str).tolist()
     _stage("tokenizing full train split without truncation to locate worst-case documents")
@@ -102,7 +114,7 @@ def main() -> None:
     print("Smoke batch shape:", tuple(encoded["input_ids"].shape), flush=True)
     print("Documents clipped to token budget:", truncated, flush=True)
 
-    _stage("running one train_on_batch step")
+    _stage("running one scheduled-AdamW train_on_batch step")
     result = model.train_on_batch(dict(encoded), selected_labels, return_dict=True)
     print("train_on_batch:", {key: float(value) for key, value in result.items()}, flush=True)
     print("SMOKE PASS", flush=True)
