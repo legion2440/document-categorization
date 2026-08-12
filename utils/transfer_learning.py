@@ -89,7 +89,7 @@ def _bucketed_dataset(
 
 
 class EpochCheckpoint:
-    """Save every epoch and update the best weights immediately on lower validation loss."""
+    """Persist each epoch and track best validation loss and accuracy independently."""
 
     @staticmethod
     def build(checkpoint_dir: Path):
@@ -100,30 +100,52 @@ class EpochCheckpoint:
                 super().__init__()
                 self.best_val_loss = float("inf")
                 self.best_epoch = 0
+                self.best_val_accuracy = float("-inf")
+                self.best_accuracy_epoch = 0
 
             def on_epoch_end(self, epoch, logs=None):
                 logs = logs or {}
-                target = checkpoint_dir / f"epoch_{epoch + 1:02d}.h5"
+                epoch_number = epoch + 1
+                target = checkpoint_dir / f"epoch_{epoch_number:02d}.h5"
                 self.model.save_weights(target)
 
                 val_loss = logs.get("val_loss")
-                if val_loss is None:
-                    return
-                val_loss = float(val_loss)
-                if val_loss < self.best_val_loss:
-                    self.best_val_loss = val_loss
-                    self.best_epoch = epoch + 1
-                    self.model.save_weights(checkpoint_dir / "text_classifier_best.h5")
-                    (checkpoint_dir / "best_epoch.json").write_text(
-                        json.dumps(
-                            {
-                                "best_epoch": self.best_epoch,
-                                "best_val_loss": self.best_val_loss,
-                            },
-                            indent=2,
+                if val_loss is not None:
+                    val_loss = float(val_loss)
+                    if val_loss < self.best_val_loss:
+                        self.best_val_loss = val_loss
+                        self.best_epoch = epoch_number
+                        self.model.save_weights(checkpoint_dir / "text_classifier_best.h5")
+                        (checkpoint_dir / "best_epoch.json").write_text(
+                            json.dumps(
+                                {
+                                    "best_epoch": self.best_epoch,
+                                    "best_val_loss": self.best_val_loss,
+                                },
+                                indent=2,
+                            )
+                            + "\n",
+                            encoding="utf-8",
                         )
-                        + "\n"
-                    )
+
+                val_accuracy = logs.get("val_accuracy")
+                if val_accuracy is not None:
+                    val_accuracy = float(val_accuracy)
+                    if val_accuracy > self.best_val_accuracy:
+                        self.best_val_accuracy = val_accuracy
+                        self.best_accuracy_epoch = epoch_number
+                        self.model.save_weights(checkpoint_dir / "text_classifier_best_accuracy.h5")
+                        (checkpoint_dir / "best_accuracy_epoch.json").write_text(
+                            json.dumps(
+                                {
+                                    "best_epoch": self.best_accuracy_epoch,
+                                    "best_val_accuracy": self.best_val_accuracy,
+                                },
+                                indent=2,
+                            )
+                            + "\n",
+                            encoding="utf-8",
+                        )
 
         return _Callback()
 
@@ -209,13 +231,23 @@ def train_transformer(
     )
 
     val_losses = history.history.get("val_loss", [])
+    val_accuracies = history.history.get("val_accuracy", [])
     if not val_losses:
         raise RuntimeError("Validation loss was not recorded")
+    if not val_accuracies:
+        raise RuntimeError("Validation accuracy was not recorded")
+
     best_epoch = int(np.argmin(val_losses)) + 1
     if checkpoint_callback.best_epoch != best_epoch:
-        raise RuntimeError("Best-checkpoint callback disagrees with recorded validation history")
+        raise RuntimeError("Best-loss checkpoint disagrees with recorded validation history")
+    best_accuracy_epoch = int(np.argmax(val_accuracies)) + 1
+    if checkpoint_callback.best_accuracy_epoch != best_accuracy_epoch:
+        raise RuntimeError("Best-accuracy checkpoint disagrees with recorded validation history")
+
     if not (checkpoint_dir / "text_classifier_best.h5").exists():
-        raise RuntimeError("Best checkpoint was not written")
+        raise RuntimeError("Best-loss checkpoint was not written")
+    if not (checkpoint_dir / "text_classifier_best_accuracy.h5").exists():
+        raise RuntimeError("Best-accuracy checkpoint was not written")
 
     save_runtime_config(checkpoint_dir / "config.json", config, labels)
     return history
