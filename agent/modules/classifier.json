@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "module_id": "classifier",
-  "purpose": "TF/Keras baseline and multilingual DistilBERT transfer-learning classifier",
+  "purpose": "TF/Keras baseline and multilingual BERT-family transfer-learning classifier with explicit token budgets and regularized fine-tuning",
   "paths": [
     {"path": "models/text_classifier.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "models/baseline.py", "lifecycle": "implemented", "provenance": "authored"},
