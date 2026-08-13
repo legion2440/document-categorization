@@ -5,6 +5,7 @@
   "paths": [
     {"path": "scripts/evaluate.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/evaluate_validation.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/benchmark_validation_runtime.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/evaluate_ensemble_validation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/refine_ensemble_validation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/probe_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
