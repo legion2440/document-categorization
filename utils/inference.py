@@ -41,6 +41,32 @@ def _bucket_for_length(length: int, buckets: tuple[int, ...]) -> int:
     raise ValueError(f"Tokenized length {length} exceeds configured buckets {buckets}")
 
 
+def attention_balanced_batch_sizes(
+    buckets: tuple[int, ...],
+    longest_batch_size: int,
+    *,
+    max_batch_size: int = 64,
+) -> dict[int, int]:
+    """Keep batch*sequence^2 bounded by the proven-safe longest-bucket workload."""
+    if not buckets:
+        raise ValueError("At least one inference bucket is required")
+    if longest_batch_size <= 0 or max_batch_size <= 0:
+        raise ValueError("Inference batch sizes must be positive")
+    if max_batch_size < longest_batch_size:
+        raise ValueError("max_batch_size cannot be smaller than longest_batch_size")
+
+    longest = max(buckets)
+    attention_budget = longest_batch_size * longest * longest
+    profile: dict[int, int] = {}
+    for bucket in buckets:
+        candidate = max(longest_batch_size, attention_budget // (bucket * bucket))
+        candidate = min(candidate, max_batch_size)
+        power_of_two = 1 << (int(candidate).bit_length() - 1)
+        profile[bucket] = max(longest_batch_size, power_of_two)
+    profile[longest] = longest_batch_size
+    return profile
+
+
 class DocumentCategorizationPipeline:
     def __init__(
         self,
@@ -48,6 +74,7 @@ class DocumentCategorizationPipeline:
         *,
         weights_name: str = "text_classifier_best.h5",
         classifier_batch_size: int | None = None,
+        classifier_batch_sizes: dict[int, int] | None = None,
     ):
         checkpoint_dir = Path(checkpoint_dir)
         config_path = checkpoint_dir / "config.json"
@@ -69,10 +96,24 @@ class DocumentCategorizationPipeline:
             gradient_clip_norm=float(runtime.get("gradient_clip_norm", 1.0)),
             random_seed=int(runtime.get("random_seed", 42)),
         )
-        self.classifier_batch_size = int(classifier_batch_size or self.config.batch_size)
-        if self.classifier_batch_size <= 0:
-            raise ValueError("classifier_batch_size must be positive")
         self.bucket_lengths = _runtime_bucket_lengths(self.config.max_length)
+        if classifier_batch_size is not None and classifier_batch_sizes is not None:
+            raise ValueError("Use either classifier_batch_size or classifier_batch_sizes, not both")
+        if classifier_batch_sizes is not None:
+            normalized = {int(bucket): int(size) for bucket, size in classifier_batch_sizes.items()}
+            if set(normalized) != set(self.bucket_lengths):
+                raise ValueError(
+                    f"classifier_batch_sizes must define exactly these buckets: {self.bucket_lengths}"
+                )
+            if any(size <= 0 for size in normalized.values()):
+                raise ValueError("classifier batch sizes must be positive")
+            self.classifier_batch_sizes = normalized
+        else:
+            batch_size = int(classifier_batch_size or self.config.batch_size)
+            if batch_size <= 0:
+                raise ValueError("classifier_batch_size must be positive")
+            self.classifier_batch_sizes = {bucket: batch_size for bucket in self.bucket_lengths}
+
         self.tokenizer, self.model = build_model(len(self.labels), self.config)
         self.model.load_weights(weights_path)
         self.tagger = DocumentTagger()
@@ -82,8 +123,8 @@ class DocumentCategorizationPipeline:
         self,
         items: list[tuple[int, list[int], list[int]]],
         bucket_length: int,
+        batch_size: int,
     ) -> tuple[np.ndarray, np.ndarray]:
-        batch_size = self.classifier_batch_size
         pad_token_id = int(self.tokenizer.pad_token_id or 0)
         input_ids = np.full((batch_size, bucket_length), pad_token_id, dtype=np.int32)
         attention_mask = np.zeros((batch_size, bucket_length), dtype=np.int32)
@@ -93,8 +134,6 @@ class DocumentCategorizationPipeline:
             input_ids[row, :length] = ids
             attention_mask[row, :length] = mask
 
-        # Dummy rows keep a valid minimal sequence so all-attention-masked behavior
-        # cannot introduce NaNs. Their outputs are discarded after inference.
         cls_token_id = self.tokenizer.cls_token_id
         sep_token_id = self.tokenizer.sep_token_id
         for row in range(len(items), batch_size):
@@ -126,17 +165,20 @@ class DocumentCategorizationPipeline:
         confidence = np.full(len(texts), np.nan, dtype=np.float32)
         bucket_documents: dict[str, int] = {}
         bucket_batches: dict[str, int] = {}
+        bucket_model_rows: dict[str, int] = {}
         model_rows = 0
 
         for bucket in self.bucket_lengths:
             items = groups[bucket]
             if not items:
                 continue
+            batch_size = self.classifier_batch_sizes[bucket]
             bucket_documents[str(bucket)] = len(items)
             batches = 0
-            for start in range(0, len(items), self.classifier_batch_size):
-                chunk = items[start : start + self.classifier_batch_size]
-                batch_ids, batch_mask = self._fixed_batch_arrays(chunk, bucket)
+            rows = 0
+            for start in range(0, len(items), batch_size):
+                chunk = items[start : start + batch_size]
+                batch_ids, batch_mask = self._fixed_batch_arrays(chunk, bucket, batch_size)
                 logits = self.model(
                     {
                         "input_ids": tf.convert_to_tensor(batch_ids),
@@ -151,8 +193,10 @@ class DocumentCategorizationPipeline:
                     predicted[original_index] = label_id
                     confidence[original_index] = float(probabilities[row, label_id])
                 batches += 1
-                model_rows += self.classifier_batch_size
+                rows += batch_size
+                model_rows += batch_size
             bucket_batches[str(bucket)] = batches
+            bucket_model_rows[str(bucket)] = rows
 
         expected_order = np.arange(len(texts), dtype=np.int32)
         restored_order = np.flatnonzero(predicted >= 0).astype(np.int32)
@@ -162,10 +206,11 @@ class DocumentCategorizationPipeline:
         stats: dict[str, object] = {
             "documents": len(texts),
             "clipped_documents": int(clipped),
-            "classifier_batch_size": self.classifier_batch_size,
+            "classifier_batch_sizes": {str(k): v for k, v in self.classifier_batch_sizes.items()},
             "bucket_lengths": list(self.bucket_lengths),
             "bucket_documents": bucket_documents,
             "bucket_batches": bucket_batches,
+            "bucket_model_rows": bucket_model_rows,
             "model_rows": model_rows,
             "dummy_rows": model_rows - len(texts),
         }
@@ -183,15 +228,9 @@ class DocumentCategorizationPipeline:
         cls_token_id = int(self.tokenizer.cls_token_id if self.tokenizer.cls_token_id is not None else pad_token_id)
         sep_token_id = self.tokenizer.sep_token_id
         for bucket in self.bucket_lengths:
-            input_ids = np.full(
-                (self.classifier_batch_size, bucket),
-                pad_token_id,
-                dtype=np.int32,
-            )
-            attention_mask = np.zeros(
-                (self.classifier_batch_size, bucket),
-                dtype=np.int32,
-            )
+            batch_size = self.classifier_batch_sizes[bucket]
+            input_ids = np.full((batch_size, bucket), pad_token_id, dtype=np.int32)
+            attention_mask = np.zeros((batch_size, bucket), dtype=np.int32)
             input_ids[:, 0] = cls_token_id
             attention_mask[:, 0] = 1
             if bucket > 1 and sep_token_id is not None:
