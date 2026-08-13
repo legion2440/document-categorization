@@ -16,8 +16,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from models.tagger import detect_language
+from models.text_classifier import load_runtime_config
 from utils.data_loader import load_processed_splits
-from utils.inference import DocumentCategorizationPipeline
+from utils.inference import (
+    DocumentCategorizationPipeline,
+    _runtime_bucket_lengths,
+    attention_balanced_batch_sizes,
+)
 from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, canonical_window
 
 
@@ -53,7 +58,7 @@ def _throughput(count: int, elapsed: float) -> float:
 def _merge_classifier_stats(total: dict[str, object], current: dict[str, object]) -> None:
     for key in ("documents", "clipped_documents", "model_rows", "dummy_rows"):
         total[key] = int(total.get(key, 0)) + int(current[key])
-    for key in ("bucket_documents", "bucket_batches"):
+    for key in ("bucket_documents", "bucket_batches", "bucket_model_rows"):
         target = total.setdefault(key, {})
         assert isinstance(target, dict)
         source = current[key]
@@ -90,21 +95,46 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint-dir", default="models/checkpoints_mdeberta_b2")
     parser.add_argument("--weights", default="text_classifier_best_accuracy.h5")
-    parser.add_argument("--classifier-batch-size", type=int, default=4)
+    parser.add_argument(
+        "--classifier-batch-size",
+        type=int,
+        default=4,
+        help="Batch size for the longest bucket; also the uniform size with --batch-mode=uniform",
+    )
+    parser.add_argument(
+        "--batch-mode",
+        choices=("attention-balanced", "uniform"),
+        default="attention-balanced",
+    )
+    parser.add_argument("--max-classifier-batch-size", type=int, default=64)
     parser.add_argument("--window-size", type=int, default=256)
     parser.add_argument("--latency-samples", type=int, default=32)
     args = parser.parse_args()
 
     for name, value in (
         ("classifier-batch-size", args.classifier_batch_size),
+        ("max-classifier-batch-size", args.max_classifier_batch_size),
         ("window-size", args.window_size),
         ("latency-samples", args.latency_samples),
     ):
         if value <= 0:
             raise SystemExit(f"--{name} must be positive")
+    if args.max_classifier_batch_size < args.classifier_batch_size:
+        raise SystemExit("--max-classifier-batch-size cannot be smaller than --classifier-batch-size")
 
     precision_policy = _configure_tensorflow()
     checkpoint_dir = _resolve(args.checkpoint_dir)
+    runtime = load_runtime_config(checkpoint_dir / "config.json")
+    bucket_lengths = _runtime_bucket_lengths(int(runtime["max_length"]))
+    if args.batch_mode == "attention-balanced":
+        batch_profile = attention_balanced_batch_sizes(
+            bucket_lengths,
+            args.classifier_batch_size,
+            max_batch_size=args.max_classifier_batch_size,
+        )
+    else:
+        batch_profile = {bucket: args.classifier_batch_size for bucket in bucket_lengths}
+
     validation = load_processed_splits(ROOT / "data/processed_data")["validation"].reset_index(drop=True)
     texts = validation["text"].astype(str).tolist()
     truth = validation["label_id"].astype(int).to_numpy()
@@ -120,14 +150,14 @@ def main() -> None:
     pipeline = DocumentCategorizationPipeline(
         checkpoint_dir,
         weights_name=args.weights,
-        classifier_batch_size=args.classifier_batch_size,
+        classifier_batch_sizes=batch_profile,
     )
     try:
         print(
             "Runtime config: "
             f"model={pipeline.config.model_name}, weights={args.weights}, precision={precision_policy}, "
-            f"classifier_batch_size={pipeline.classifier_batch_size}, window_size={args.window_size}, "
-            f"buckets={pipeline.bucket_lengths}"
+            f"batch_mode={args.batch_mode}, batch_profile={pipeline.classifier_batch_sizes}, "
+            f"window_size={args.window_size}, buckets={pipeline.bucket_lengths}"
         )
 
         raw_encoding = pipeline.tokenizer(
@@ -171,6 +201,7 @@ def main() -> None:
             "dummy_rows": 0,
             "bucket_documents": {},
             "bucket_batches": {},
+            "bucket_model_rows": {},
         }
         started = time.perf_counter()
         for window in _windows(prepared, args.window_size):
@@ -212,8 +243,7 @@ def main() -> None:
         started = time.perf_counter()
         for window in _windows(texts, args.window_size):
             sequential_labels.extend(
-                prediction.category
-                for prediction in pipeline.process_batch(window, parallel_stages=False)
+                prediction.category for prediction in pipeline.process_batch(window, parallel_stages=False)
             )
         sequential_elapsed = time.perf_counter() - started
         if len(sequential_labels) != len(validation):
@@ -224,13 +254,16 @@ def main() -> None:
         started = time.perf_counter()
         for window in _windows(texts, args.window_size):
             parallel_labels.extend(
-                prediction.category
-                for prediction in pipeline.process_batch(window, parallel_stages=True)
+                prediction.category for prediction in pipeline.process_batch(window, parallel_stages=True)
             )
         parallel_elapsed = time.perf_counter() - started
         if sequential_labels != parallel_labels:
             raise RuntimeError("Parallel stage overlap changed classifier prediction order or labels")
 
+        # Dashboard latency is a batch=1 concern. Reconfigure after throughput
+        # measurements and warm these shapes outside the latency timer.
+        pipeline.classifier_batch_sizes = {bucket: 1 for bucket in pipeline.bucket_lengths}
+        pipeline.warmup_classifier()
         sample_count = min(args.latency_samples, len(texts))
         sample_indices = np.linspace(0, len(texts) - 1, sample_count, dtype=int).tolist()
         sequential_latency: list[float] = []
@@ -257,7 +290,8 @@ def main() -> None:
             "precision_policy": precision_policy,
             "documents": int(len(validation)),
             "window_size": args.window_size,
-            "classifier_batch_size": pipeline.classifier_batch_size,
+            "batch_mode": args.batch_mode,
+            "classifier_batch_sizes": {str(k): v for k, v in batch_profile.items()},
             "fixed_bucket_lengths": list(pipeline.bucket_lengths),
             "token_lengths": token_length_metrics,
             "baseline": {
@@ -296,6 +330,7 @@ def main() -> None:
                 },
             },
             "single_document_latency": {
+                "classifier_batch_size": 1,
                 "sequential": _latency_stats(sequential_latency),
                 "parallel_stages": _latency_stats(parallel_latency),
             },
