@@ -49,6 +49,8 @@ def main() -> None:
     baseline_model = joblib.load(ROOT / "models/checkpoints/baseline.joblib")
     baseline_pred = baseline_model.predict(test["text"])
     baseline_accuracy = float(accuracy_score(test["label_id"], baseline_pred))
+    absolute_improvement = accuracy - baseline_accuracy
+    relative_improvement = accuracy / baseline_accuracy - 1.0
 
     metrics = {
         "classification_accuracy": accuracy,
@@ -58,7 +60,10 @@ def main() -> None:
         "languages_supported": sorted(test["language"].unique().tolist()),
         "per_language_accuracy": per_language,
         "baseline_accuracy": baseline_accuracy,
-        "accuracy_improvement_over_baseline": accuracy - baseline_accuracy,
+        "accuracy_improvement_over_baseline_absolute_points": absolute_improvement,
+        "accuracy_improvement_over_baseline_relative": relative_improvement,
+        "meets_baseline_relative_plus_5_percent": relative_improvement >= 0.05,
+        "meets_baseline_plus_5_percentage_points": absolute_improvement >= 0.05,
         "test_documents": int(len(test)),
         "test_source_documents": int(test["pair_id"].nunique()) if "pair_id" in test else None,
     }
