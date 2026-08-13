@@ -5,10 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-import statistics
 import sys
 import time
 
+import joblib
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score
 
@@ -73,6 +73,19 @@ def _latency_stats(samples: list[float]) -> dict[str, float | int]:
     }
 
 
+def _length_stats(lengths: np.ndarray) -> dict[str, float | int]:
+    return {
+        "documents": int(len(lengths)),
+        "p50": float(np.percentile(lengths, 50)),
+        "p95": float(np.percentile(lengths, 95)),
+        "p99": float(np.percentile(lengths, 99)),
+        "p99_9": float(np.percentile(lengths, 99.9)),
+        "max": int(lengths.max()),
+        "over_384": int(np.sum(lengths > 384)),
+        "over_512": int(np.sum(lengths > 512)),
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint-dir", default="models/checkpoints_mdeberta_b2")
@@ -98,6 +111,12 @@ def main() -> None:
     known_languages = validation["language"].astype(str).tolist()
     prepared = [canonical_window(text, CLASSIFICATION_WINDOW_WORDS) for text in texts]
 
+    baseline_path = checkpoint_dir / "baseline.joblib"
+    if not baseline_path.exists():
+        raise FileNotFoundError(baseline_path)
+    baseline = joblib.load(baseline_path)
+    baseline_predictions = np.asarray(baseline.predict(texts), dtype=int)
+
     pipeline = DocumentCategorizationPipeline(
         checkpoint_dir,
         weights_name=args.weights,
@@ -110,6 +129,20 @@ def main() -> None:
             f"classifier_batch_size={pipeline.classifier_batch_size}, window_size={args.window_size}, "
             f"buckets={pipeline.bucket_lengths}"
         )
+
+        raw_encoding = pipeline.tokenizer(
+            prepared,
+            add_special_tokens=True,
+            padding=False,
+            truncation=False,
+            return_attention_mask=False,
+            verbose=False,
+        )
+        token_lengths = np.asarray([len(ids) for ids in raw_encoding["input_ids"]], dtype=int)
+        token_length_metrics: dict[str, object] = {"overall": _length_stats(token_lengths), "per_language": {}}
+        for language, group in validation.groupby("language", sort=True):
+            indices = group.index.to_numpy(dtype=int)
+            token_length_metrics["per_language"][str(language)] = _length_stats(token_lengths[indices])
 
         print("Warming all fixed classifier [batch, sequence] shapes...")
         pipeline.warmup_classifier()
@@ -147,8 +180,20 @@ def main() -> None:
         classifier_elapsed = time.perf_counter() - started
         if len(classifier_predictions) != len(validation):
             raise RuntimeError("Classifier benchmark did not restore exactly one prediction per validation document")
-        classifier_accuracy = float(accuracy_score(truth, classifier_predictions))
-        classifier_f1 = float(f1_score(truth, classifier_predictions, average="macro"))
+        classifier_predictions_array = np.asarray(classifier_predictions, dtype=int)
+        classifier_accuracy = float(accuracy_score(truth, classifier_predictions_array))
+        classifier_f1 = float(f1_score(truth, classifier_predictions_array, average="macro"))
+
+        per_language: dict[str, object] = {}
+        for language, group in validation.groupby("language", sort=True):
+            indices = group.index.to_numpy(dtype=int)
+            per_language[str(language)] = {
+                "documents": int(len(indices)),
+                "classifier_accuracy": float(accuracy_score(truth[indices], classifier_predictions_array[indices])),
+                "classifier_f1_macro": float(f1_score(truth[indices], classifier_predictions_array[indices], average="macro")),
+                "baseline_accuracy": float(accuracy_score(truth[indices], baseline_predictions[indices])),
+                "baseline_f1_macro": float(f1_score(truth[indices], baseline_predictions[indices], average="macro")),
+            }
 
         print("Benchmarking spaCy tagger...")
         started = time.perf_counter()
@@ -201,6 +246,8 @@ def main() -> None:
 
         model_rows = int(classifier_stats["model_rows"])
         dummy_rows = int(classifier_stats["dummy_rows"])
+        baseline_accuracy = float(accuracy_score(truth, baseline_predictions))
+        baseline_f1 = float(f1_score(truth, baseline_predictions, average="macro"))
         metrics = {
             "split": "validation",
             "test_split_touched": False,
@@ -212,6 +259,12 @@ def main() -> None:
             "window_size": args.window_size,
             "classifier_batch_size": pipeline.classifier_batch_size,
             "fixed_bucket_lengths": list(pipeline.bucket_lengths),
+            "token_lengths": token_length_metrics,
+            "baseline": {
+                "accuracy": baseline_accuracy,
+                "f1_macro": baseline_f1,
+            },
+            "per_language": per_language,
             "language_detection": {
                 "accuracy": detection_accuracy,
                 "elapsed_seconds": detection_elapsed,
@@ -220,6 +273,8 @@ def main() -> None:
             "classifier": {
                 "accuracy": classifier_accuracy,
                 "f1_macro": classifier_f1,
+                "relative_improvement_over_baseline": classifier_accuracy / baseline_accuracy - 1.0,
+                "absolute_improvement_points": classifier_accuracy - baseline_accuracy,
                 "elapsed_seconds": classifier_elapsed,
                 "docs_per_sec": _throughput(len(validation), classifier_elapsed),
                 "runtime_stats": classifier_stats,
