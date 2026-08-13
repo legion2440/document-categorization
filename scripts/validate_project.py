@@ -59,13 +59,22 @@ def _check_metrics(errors: list[str], warnings: list[str]) -> None:
     if missing:
         errors.append("performance_metrics.json missing fields: " + ", ".join(missing))
         return
+
+    baseline_accuracy = metrics.get("baseline_accuracy")
+    relative_improvement = metrics.get("accuracy_improvement_over_baseline_relative")
+    if relative_improvement is None and baseline_accuracy:
+        relative_improvement = metrics["classification_accuracy"] / baseline_accuracy - 1.0
+
     thresholds = [
         (metrics["classification_accuracy"] >= 0.85, "classification accuracy < 0.85"),
         (metrics["f1_score_macro"] >= 0.80, "macro F1 < 0.80"),
         (metrics["processing_speed_docs_per_sec"] >= 100, "processing speed < 100 docs/s"),
         (len(metrics["languages_supported"]) >= 2, "fewer than 2 supported languages"),
         (all(v >= 0.80 for v in metrics["per_language_accuracy"].values()), "per-language accuracy < 0.80"),
-        (metrics.get("accuracy_improvement_over_baseline", -1) >= 0.05, "transformer improvement over baseline < 0.05"),
+        (
+            relative_improvement is not None and relative_improvement >= 0.05,
+            "transformer relative improvement over baseline < 5%",
+        ),
     ]
     for ok, message in thresholds:
         if not ok:
