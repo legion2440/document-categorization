@@ -20,6 +20,7 @@ from models.text_classifier import load_runtime_config
 from utils.data_loader import load_processed_splits
 from utils.inference import (
     DocumentCategorizationPipeline,
+    INFERENCE_PRECISION_POLICIES,
     _runtime_bucket_lengths,
     attention_balanced_batch_sizes,
 )
@@ -31,7 +32,7 @@ def _resolve(value: str) -> Path:
     return path if path.is_absolute() else ROOT / path
 
 
-def _configure_tensorflow() -> str:
+def _configure_tensorflow() -> None:
     import tensorflow as tf
 
     gpus = tf.config.list_physical_devices("GPU")
@@ -43,7 +44,6 @@ def _configure_tensorflow() -> str:
             tf.config.experimental.set_memory_growth(gpu, True)
         except RuntimeError:
             pass
-    return tf.keras.mixed_precision.global_policy().name
 
 
 def _windows(values: list, size: int):
@@ -109,6 +109,12 @@ def main() -> None:
     parser.add_argument("--max-classifier-batch-size", type=int, default=64)
     parser.add_argument("--window-size", type=int, default=256)
     parser.add_argument("--latency-samples", type=int, default=32)
+    parser.add_argument(
+        "--precision-policy",
+        choices=INFERENCE_PRECISION_POLICIES,
+        default="float32",
+        help="TensorFlow compute policy for the frozen inference model",
+    )
     args = parser.parse_args()
 
     for name, value in (
@@ -122,7 +128,7 @@ def main() -> None:
     if args.max_classifier_batch_size < args.classifier_batch_size:
         raise SystemExit("--max-classifier-batch-size cannot be smaller than --classifier-batch-size")
 
-    precision_policy = _configure_tensorflow()
+    _configure_tensorflow()
     checkpoint_dir = _resolve(args.checkpoint_dir)
     runtime = load_runtime_config(checkpoint_dir / "config.json")
     bucket_lengths = _runtime_bucket_lengths(int(runtime["max_length"]))
@@ -151,11 +157,12 @@ def main() -> None:
         checkpoint_dir,
         weights_name=args.weights,
         classifier_batch_sizes=batch_profile,
+        precision_policy=args.precision_policy,
     )
     try:
         print(
             "Runtime config: "
-            f"model={pipeline.config.model_name}, weights={args.weights}, precision={precision_policy}, "
+            f"model={pipeline.config.model_name}, weights={args.weights}, precision={pipeline.precision_policy}, "
             f"batch_mode={args.batch_mode}, batch_profile={pipeline.classifier_batch_sizes}, "
             f"window_size={args.window_size}, buckets={pipeline.bucket_lengths}"
         )
@@ -260,8 +267,6 @@ def main() -> None:
         if sequential_labels != parallel_labels:
             raise RuntimeError("Parallel stage overlap changed classifier prediction order or labels")
 
-        # Dashboard latency is a batch=1 concern. Reconfigure after throughput
-        # measurements and warm these shapes outside the latency timer.
         pipeline.classifier_batch_sizes = {bucket: 1 for bucket in pipeline.bucket_lengths}
         pipeline.warmup_classifier()
         sample_count = min(args.latency_samples, len(texts))
@@ -287,7 +292,7 @@ def main() -> None:
             "model_name": pipeline.config.model_name,
             "checkpoint_dir": str(checkpoint_dir),
             "weights": args.weights,
-            "precision_policy": precision_policy,
+            "precision_policy": pipeline.precision_policy,
             "documents": int(len(validation)),
             "window_size": args.window_size,
             "batch_mode": args.batch_mode,
@@ -335,7 +340,7 @@ def main() -> None:
                 "parallel_stages": _latency_stats(parallel_latency),
             },
         }
-        output = checkpoint_dir / "validation_runtime_benchmark_fp32.json"
+        output = checkpoint_dir / f"validation_runtime_benchmark_{pipeline.precision_policy}.json"
         output.write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(json.dumps(metrics, indent=2, ensure_ascii=False))
         print(f"Saved: {output}")
