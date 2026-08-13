@@ -63,6 +63,40 @@ def _predict_transformer(model, tokenizer, texts: list[str], max_length: int, ba
     return np.asarray(predicted, dtype=int), np.asarray(confidences, dtype=float), clipped_total
 
 
+def _summarize_lengths(lengths: np.ndarray) -> dict[str, float | int]:
+    return {
+        "documents": int(len(lengths)),
+        "p50": float(np.percentile(lengths, 50)),
+        "p95": float(np.percentile(lengths, 95)),
+        "p99": float(np.percentile(lengths, 99)),
+        "p99_9": float(np.percentile(lengths, 99.9)),
+        "max": int(lengths.max()),
+        "over_384": int(np.sum(lengths > 384)),
+        "over_512": int(np.sum(lengths > 512)),
+    }
+
+
+def _token_length_diagnostics(tokenizer, validation) -> dict[str, object]:
+    texts = validation["text"].astype(str).tolist()
+    encoded = tokenizer(
+        texts,
+        add_special_tokens=True,
+        padding=False,
+        truncation=False,
+        return_attention_mask=False,
+        verbose=False,
+    )
+    lengths = np.asarray([len(ids) for ids in encoded["input_ids"]], dtype=int)
+    by_language: dict[str, object] = {}
+    for language, group in validation.groupby("language", sort=True):
+        indices = group.index.to_numpy(dtype=int)
+        by_language[str(language)] = _summarize_lengths(lengths[indices])
+    return {
+        "overall": _summarize_lengths(lengths),
+        "per_language": by_language,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--checkpoint-dir", default="models/checkpoints")
@@ -121,8 +155,14 @@ def main() -> None:
         idx = group.index.to_numpy(dtype=int)
         per_language[str(language)] = {
             "documents": int(len(idx)),
-            "accuracy": float(accuracy_score(truth[idx], transformer_pred[idx])),
-            "f1_macro": float(f1_score(truth[idx], transformer_pred[idx], average="macro")),
+            "transformer": {
+                "accuracy": float(accuracy_score(truth[idx], transformer_pred[idx])),
+                "f1_macro": float(f1_score(truth[idx], transformer_pred[idx], average="macro")),
+            },
+            "baseline": {
+                "accuracy": float(accuracy_score(truth[idx], baseline_pred[idx])),
+                "f1_macro": float(f1_score(truth[idx], baseline_pred[idx], average="macro")),
+            },
         }
 
     precision, recall, f1, support = precision_recall_fscore_support(
@@ -162,6 +202,7 @@ def main() -> None:
         "model_name": config.model_name,
         "documents": int(len(validation)),
         "clipped_documents": int(clipped),
+        "token_lengths": _token_length_diagnostics(tokenizer, validation),
         "transformer": {
             "accuracy": transformer_accuracy,
             "f1_macro": float(f1_score(truth, transformer_pred, average="macro")),
