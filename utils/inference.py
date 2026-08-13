@@ -17,6 +17,7 @@ from models.text_classifier import (
 from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, canonical_window
 
 INFERENCE_BUCKET_LENGTHS = (64, 128, 192, 256, 384, 512)
+INFERENCE_PRECISION_POLICIES = ("float32", "mixed_float16")
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class DocumentCategorizationPipeline:
         weights_name: str = "text_classifier_best.h5",
         classifier_batch_size: int | None = None,
         classifier_batch_sizes: dict[int, int] | None = None,
+        precision_policy: str = "float32",
     ):
         checkpoint_dir = Path(checkpoint_dir)
         config_path = checkpoint_dir / "config.json"
@@ -83,6 +85,11 @@ class DocumentCategorizationPipeline:
             raise FileNotFoundError(
                 "Trained classifier artifacts are missing. Run `python scripts/train.py` first."
             )
+        if precision_policy not in INFERENCE_PRECISION_POLICIES:
+            raise ValueError(
+                f"precision_policy must be one of {INFERENCE_PRECISION_POLICIES}, got {precision_policy!r}"
+            )
+
         runtime = load_runtime_config(config_path)
         self.labels = list(runtime["labels"])
         self.config = ClassifierConfig(
@@ -114,6 +121,10 @@ class DocumentCategorizationPipeline:
                 raise ValueError("classifier_batch_size must be positive")
             self.classifier_batch_sizes = {bucket: batch_size for bucket in self.bucket_lengths}
 
+        import tf_keras
+
+        tf_keras.mixed_precision.set_global_policy(precision_policy)
+        self.precision_policy = tf_keras.mixed_precision.global_policy().name
         self.tokenizer, self.model = build_model(len(self.labels), self.config)
         self.model.load_weights(weights_path)
         self.tagger = DocumentTagger()
@@ -206,6 +217,7 @@ class DocumentCategorizationPipeline:
         stats: dict[str, object] = {
             "documents": len(texts),
             "clipped_documents": int(clipped),
+            "precision_policy": self.precision_policy,
             "classifier_batch_sizes": {str(k): v for k, v in self.classifier_batch_sizes.items()},
             "bucket_lengths": list(self.bucket_lengths),
             "bucket_documents": bucket_documents,
