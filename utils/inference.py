@@ -1,13 +1,11 @@
 """Real-time classification + tagging pipeline."""
 from __future__ import annotations
 
-import os
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-
-os.environ.setdefault("TF_USE_LEGACY_KERAS", "1")
 
 from models.tagger import DocumentTagger, detect_language
 from models.text_classifier import (
@@ -17,6 +15,8 @@ from models.text_classifier import (
     tokenize_with_budget,
 )
 from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, canonical_window
+
+INFERENCE_BUCKET_LENGTHS = (64, 128, 192, 256, 384, 512)
 
 
 @dataclass(frozen=True)
@@ -28,11 +28,30 @@ class Prediction:
     entities: list[dict[str, str]]
 
 
+def _runtime_bucket_lengths(max_length: int) -> tuple[int, ...]:
+    lengths = [length for length in INFERENCE_BUCKET_LENGTHS if length < max_length]
+    lengths.append(max_length)
+    return tuple(sorted(set(lengths)))
+
+
+def _bucket_for_length(length: int, buckets: tuple[int, ...]) -> int:
+    for bucket in buckets:
+        if length <= bucket:
+            return bucket
+    raise ValueError(f"Tokenized length {length} exceeds configured buckets {buckets}")
+
+
 class DocumentCategorizationPipeline:
-    def __init__(self, checkpoint_dir: str | Path = "models/checkpoints"):
+    def __init__(
+        self,
+        checkpoint_dir: str | Path = "models/checkpoints",
+        *,
+        weights_name: str = "text_classifier_best.h5",
+        classifier_batch_size: int | None = None,
+    ):
         checkpoint_dir = Path(checkpoint_dir)
         config_path = checkpoint_dir / "config.json"
-        weights_path = checkpoint_dir / "text_classifier_best.h5"
+        weights_path = checkpoint_dir / weights_name
         if not config_path.exists() or not weights_path.exists():
             raise FileNotFoundError(
                 "Trained classifier artifacts are missing. Run `python scripts/train.py` first."
@@ -45,30 +64,167 @@ class DocumentCategorizationPipeline:
             learning_rate=float(runtime["learning_rate"]),
             epochs=int(runtime["epochs"]),
             batch_size=int(runtime["batch_size"]),
+            weight_decay=float(runtime.get("weight_decay", 0.01)),
+            warmup_ratio=float(runtime.get("warmup_ratio", 0.10)),
+            gradient_clip_norm=float(runtime.get("gradient_clip_norm", 1.0)),
             random_seed=int(runtime.get("random_seed", 42)),
         )
+        self.classifier_batch_size = int(classifier_batch_size or self.config.batch_size)
+        if self.classifier_batch_size <= 0:
+            raise ValueError("classifier_batch_size must be positive")
+        self.bucket_lengths = _runtime_bucket_lengths(self.config.max_length)
         self.tokenizer, self.model = build_model(len(self.labels), self.config)
         self.model.load_weights(weights_path)
         self.tagger = DocumentTagger()
+        self._stage_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tagger-stage")
 
-    def _classify_batch(self, texts: list[str]) -> tuple[np.ndarray, np.ndarray]:
+    def _fixed_batch_arrays(
+        self,
+        items: list[tuple[int, list[int], list[int]]],
+        bucket_length: int,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        batch_size = self.classifier_batch_size
+        pad_token_id = int(self.tokenizer.pad_token_id or 0)
+        input_ids = np.full((batch_size, bucket_length), pad_token_id, dtype=np.int32)
+        attention_mask = np.zeros((batch_size, bucket_length), dtype=np.int32)
+
+        for row, (_, ids, mask) in enumerate(items):
+            length = len(ids)
+            input_ids[row, :length] = ids
+            attention_mask[row, :length] = mask
+
+        # Dummy rows keep a valid minimal sequence so all-attention-masked behavior
+        # cannot introduce NaNs. Their outputs are discarded after inference.
+        cls_token_id = self.tokenizer.cls_token_id
+        sep_token_id = self.tokenizer.sep_token_id
+        for row in range(len(items), batch_size):
+            input_ids[row, 0] = int(cls_token_id if cls_token_id is not None else pad_token_id)
+            attention_mask[row, 0] = 1
+            if bucket_length > 1 and sep_token_id is not None:
+                input_ids[row, 1] = int(sep_token_id)
+                attention_mask[row, 1] = 1
+
+        return input_ids, attention_mask
+
+    def _classify_batch_with_stats(
+        self,
+        texts: list[str],
+    ) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
         import tensorflow as tf
 
-        tokenized, _ = tokenize_with_budget(self.tokenizer, texts, self.config.max_length)
-        encoded = self.tokenizer.pad(tokenized, padding=True, return_tensors="tf")
-        logits = self.model(dict(encoded), training=False).logits
-        probabilities = tf.nn.softmax(logits, axis=-1).numpy()
-        ids = probabilities.argmax(axis=-1)
-        confidence = probabilities[np.arange(len(ids)), ids]
-        return ids, confidence
+        tokenized, clipped = tokenize_with_budget(self.tokenizer, texts, self.config.max_length)
+        input_ids = tokenized["input_ids"]
+        attention_masks = tokenized["attention_mask"]
+        groups: dict[int, list[tuple[int, list[int], list[int]]]] = {
+            bucket: [] for bucket in self.bucket_lengths
+        }
+        for index, (ids, mask) in enumerate(zip(input_ids, attention_masks)):
+            bucket = _bucket_for_length(len(ids), self.bucket_lengths)
+            groups[bucket].append((index, list(ids), list(mask)))
 
-    def process_batch(self, texts: list[str], languages: list[str] | None = None) -> list[Prediction]:
+        predicted = np.full(len(texts), -1, dtype=np.int32)
+        confidence = np.full(len(texts), np.nan, dtype=np.float32)
+        bucket_documents: dict[str, int] = {}
+        bucket_batches: dict[str, int] = {}
+        model_rows = 0
+
+        for bucket in self.bucket_lengths:
+            items = groups[bucket]
+            if not items:
+                continue
+            bucket_documents[str(bucket)] = len(items)
+            batches = 0
+            for start in range(0, len(items), self.classifier_batch_size):
+                chunk = items[start : start + self.classifier_batch_size]
+                batch_ids, batch_mask = self._fixed_batch_arrays(chunk, bucket)
+                logits = self.model(
+                    {
+                        "input_ids": tf.convert_to_tensor(batch_ids),
+                        "attention_mask": tf.convert_to_tensor(batch_mask),
+                    },
+                    training=False,
+                ).logits
+                probabilities = tf.nn.softmax(tf.cast(logits, tf.float32), axis=-1).numpy()[: len(chunk)]
+                ids = probabilities.argmax(axis=-1)
+                for row, (original_index, _, _) in enumerate(chunk):
+                    label_id = int(ids[row])
+                    predicted[original_index] = label_id
+                    confidence[original_index] = float(probabilities[row, label_id])
+                batches += 1
+                model_rows += self.classifier_batch_size
+            bucket_batches[str(bucket)] = batches
+
+        expected_order = np.arange(len(texts), dtype=np.int32)
+        restored_order = np.flatnonzero(predicted >= 0).astype(np.int32)
+        if not np.array_equal(restored_order, expected_order):
+            raise RuntimeError("Fixed-bucket inference failed to restore original document order")
+
+        stats: dict[str, object] = {
+            "documents": len(texts),
+            "clipped_documents": int(clipped),
+            "classifier_batch_size": self.classifier_batch_size,
+            "bucket_lengths": list(self.bucket_lengths),
+            "bucket_documents": bucket_documents,
+            "bucket_batches": bucket_batches,
+            "model_rows": model_rows,
+            "dummy_rows": model_rows - len(texts),
+        }
+        return predicted, confidence, stats
+
+    def _classify_batch(self, texts: list[str]) -> tuple[np.ndarray, np.ndarray]:
+        predicted, confidence, _ = self._classify_batch_with_stats(texts)
+        return predicted, confidence
+
+    def warmup_classifier(self) -> None:
+        """Warm every fixed [batch, sequence] shape used by classifier inference."""
+        import tensorflow as tf
+
+        pad_token_id = int(self.tokenizer.pad_token_id or 0)
+        cls_token_id = int(self.tokenizer.cls_token_id if self.tokenizer.cls_token_id is not None else pad_token_id)
+        sep_token_id = self.tokenizer.sep_token_id
+        for bucket in self.bucket_lengths:
+            input_ids = np.full(
+                (self.classifier_batch_size, bucket),
+                pad_token_id,
+                dtype=np.int32,
+            )
+            attention_mask = np.zeros(
+                (self.classifier_batch_size, bucket),
+                dtype=np.int32,
+            )
+            input_ids[:, 0] = cls_token_id
+            attention_mask[:, 0] = 1
+            if bucket > 1 and sep_token_id is not None:
+                input_ids[:, 1] = int(sep_token_id)
+                attention_mask[:, 1] = 1
+            self.model(
+                {
+                    "input_ids": tf.convert_to_tensor(input_ids),
+                    "attention_mask": tf.convert_to_tensor(attention_mask),
+                },
+                training=False,
+            ).logits
+
+    def process_batch(
+        self,
+        texts: list[str],
+        languages: list[str] | None = None,
+        *,
+        parallel_stages: bool = False,
+    ) -> list[Prediction]:
         prepared = [canonical_window(text, CLASSIFICATION_WINDOW_WORDS) for text in texts]
         if any(not text for text in prepared):
             raise ValueError("Documents must contain non-empty text")
         languages = languages or [detect_language(text) for text in prepared]
-        ids, confidence = self._classify_batch(prepared)
-        tagging = self.tagger.tag_batch(prepared, languages)
+
+        if parallel_stages:
+            tagging_future = self._stage_pool.submit(self.tagger.tag_batch, prepared, languages)
+            ids, confidence = self._classify_batch(prepared)
+            tagging = tagging_future.result()
+        else:
+            ids, confidence = self._classify_batch(prepared)
+            tagging = self.tagger.tag_batch(prepared, languages)
+
         return [
             Prediction(
                 category=self.labels[int(label_id)],
@@ -82,3 +238,6 @@ class DocumentCategorizationPipeline:
 
     def process(self, text: str, language: str | None = None) -> Prediction:
         return self.process_batch([text], [language] if language else None)[0]
+
+    def close(self) -> None:
+        self._stage_pool.shutdown(wait=True)
