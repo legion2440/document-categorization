@@ -77,6 +77,7 @@ class DocumentCategorizationPipeline:
         classifier_batch_size: int | None = None,
         classifier_batch_sizes: dict[int, int] | None = None,
         precision_policy: str = "float32",
+        jit_compile: bool = False,
     ):
         checkpoint_dir = Path(checkpoint_dir)
         config_path = checkpoint_dir / "config.json"
@@ -125,10 +126,60 @@ class DocumentCategorizationPipeline:
 
         tf_keras.mixed_precision.set_global_policy(precision_policy)
         self.precision_policy = tf_keras.mixed_precision.global_policy().name
+        self.jit_compile = bool(jit_compile)
         self.tokenizer, self.model = build_model(len(self.labels), self.config)
         self.model.load_weights(weights_path)
+        self._compiled_classifier_functions: dict[tuple[int, int], object] = {}
         self.tagger = DocumentTagger()
         self._stage_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tagger-stage")
+
+    @property
+    def compiled_classifier_shapes(self) -> list[list[int]]:
+        return [[batch, sequence] for batch, sequence in sorted(self._compiled_classifier_functions)]
+
+    def _compiled_classifier(self, batch_size: int, bucket_length: int):
+        key = (batch_size, bucket_length)
+        compiled = self._compiled_classifier_functions.get(key)
+        if compiled is not None:
+            return compiled
+
+        import tensorflow as tf
+
+        @tf.function(
+            input_signature=[
+                tf.TensorSpec([batch_size, bucket_length], tf.int32, name="input_ids"),
+                tf.TensorSpec([batch_size, bucket_length], tf.int32, name="attention_mask"),
+            ],
+            jit_compile=True,
+        )
+        def run(input_ids, attention_mask):
+            outputs = self.model(
+                {"input_ids": input_ids, "attention_mask": attention_mask},
+                training=False,
+            )
+            return tf.cast(outputs.logits, tf.float32)
+
+        self._compiled_classifier_functions[key] = run
+        return run
+
+    def _classifier_logits(
+        self,
+        batch_ids: np.ndarray,
+        batch_mask: np.ndarray,
+        bucket_length: int,
+    ):
+        import tensorflow as tf
+
+        input_ids = tf.convert_to_tensor(batch_ids)
+        attention_mask = tf.convert_to_tensor(batch_mask)
+        if self.jit_compile:
+            batch_size = int(batch_ids.shape[0])
+            return self._compiled_classifier(batch_size, bucket_length)(input_ids, attention_mask)
+        outputs = self.model(
+            {"input_ids": input_ids, "attention_mask": attention_mask},
+            training=False,
+        )
+        return tf.cast(outputs.logits, tf.float32)
 
     def _fixed_batch_arrays(
         self,
@@ -190,13 +241,7 @@ class DocumentCategorizationPipeline:
             for start in range(0, len(items), batch_size):
                 chunk = items[start : start + batch_size]
                 batch_ids, batch_mask = self._fixed_batch_arrays(chunk, bucket, batch_size)
-                logits = self.model(
-                    {
-                        "input_ids": tf.convert_to_tensor(batch_ids),
-                        "attention_mask": tf.convert_to_tensor(batch_mask),
-                    },
-                    training=False,
-                ).logits
+                logits = self._classifier_logits(batch_ids, batch_mask, bucket)
                 probabilities = tf.nn.softmax(tf.cast(logits, tf.float32), axis=-1).numpy()[: len(chunk)]
                 ids = probabilities.argmax(axis=-1)
                 for row, (original_index, _, _) in enumerate(chunk):
@@ -218,6 +263,7 @@ class DocumentCategorizationPipeline:
             "documents": len(texts),
             "clipped_documents": int(clipped),
             "precision_policy": self.precision_policy,
+            "jit_compile": self.jit_compile,
             "classifier_batch_sizes": {str(k): v for k, v in self.classifier_batch_sizes.items()},
             "bucket_lengths": list(self.bucket_lengths),
             "bucket_documents": bucket_documents,
@@ -234,8 +280,6 @@ class DocumentCategorizationPipeline:
 
     def warmup_classifier(self) -> None:
         """Warm every fixed [batch, sequence] shape used by classifier inference."""
-        import tensorflow as tf
-
         pad_token_id = int(self.tokenizer.pad_token_id or 0)
         cls_token_id = int(self.tokenizer.cls_token_id if self.tokenizer.cls_token_id is not None else pad_token_id)
         sep_token_id = self.tokenizer.sep_token_id
@@ -248,13 +292,7 @@ class DocumentCategorizationPipeline:
             if bucket > 1 and sep_token_id is not None:
                 input_ids[:, 1] = int(sep_token_id)
                 attention_mask[:, 1] = 1
-            self.model(
-                {
-                    "input_ids": tf.convert_to_tensor(input_ids),
-                    "attention_mask": tf.convert_to_tensor(attention_mask),
-                },
-                training=False,
-            ).logits
+            self._classifier_logits(input_ids, attention_mask, bucket)
 
     def process_batch(
         self,
