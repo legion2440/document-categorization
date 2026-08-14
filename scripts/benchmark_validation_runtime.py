@@ -15,7 +15,7 @@ from sklearn.metrics import accuracy_score, f1_score
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from models.tagger import detect_language
+from models.tagger import TAGGING_WINDOW_WORDS, detect_language
 from models.text_classifier import load_runtime_config
 from utils.data_loader import load_processed_splits
 from utils.inference import (
@@ -109,6 +109,7 @@ def main() -> None:
     parser.add_argument("--max-classifier-batch-size", type=int, default=64)
     parser.add_argument("--window-size", type=int, default=256)
     parser.add_argument("--latency-samples", type=int, default=32)
+    parser.add_argument("--tagger-window-words", type=int, default=TAGGING_WINDOW_WORDS)
     parser.add_argument(
         "--precision-policy",
         choices=INFERENCE_PRECISION_POLICIES,
@@ -127,6 +128,7 @@ def main() -> None:
         ("max-classifier-batch-size", args.max_classifier_batch_size),
         ("window-size", args.window_size),
         ("latency-samples", args.latency_samples),
+        ("tagger-window-words", args.tagger_window_words),
     ):
         if value <= 0:
             raise SystemExit(f"--{name} must be positive")
@@ -164,6 +166,7 @@ def main() -> None:
         classifier_batch_sizes=batch_profile,
         precision_policy=args.precision_policy,
         jit_compile=args.jit_compile,
+        tagger_window_words=args.tagger_window_words,
     )
     try:
         print(
@@ -171,7 +174,7 @@ def main() -> None:
             f"model={pipeline.config.model_name}, weights={args.weights}, precision={pipeline.precision_policy}, "
             f"jit_compile={pipeline.jit_compile}, batch_mode={args.batch_mode}, "
             f"batch_profile={pipeline.classifier_batch_sizes}, window_size={args.window_size}, "
-            f"buckets={pipeline.bucket_lengths}"
+            f"tagger_window_words={pipeline.tagger_window_words}, buckets={pipeline.bucket_lengths}"
         )
 
         raw_encoding = pipeline.tokenizer(
@@ -314,6 +317,7 @@ def main() -> None:
             "jit_compile": pipeline.jit_compile,
             "documents": int(len(validation)),
             "window_size": args.window_size,
+            "tagger_window_words": pipeline.tagger_window_words,
             "batch_mode": args.batch_mode,
             "classifier_batch_sizes": {str(k): v for k, v in batch_profile.items()},
             "fixed_bucket_lengths": list(pipeline.bucket_lengths),
@@ -344,6 +348,7 @@ def main() -> None:
                 "dummy_row_fraction": float(dummy_rows / model_rows) if model_rows else 0.0,
             },
             "tagger": {
+                "window_words": pipeline.tagger_window_words,
                 "elapsed_seconds": tagger_elapsed,
                 "docs_per_sec": _throughput(len(validation), tagger_elapsed),
             },
@@ -367,6 +372,8 @@ def main() -> None:
         suffix = f"_{pipeline.precision_policy}"
         if pipeline.jit_compile:
             suffix += "_xla"
+        if pipeline.tagger_window_words != TAGGING_WINDOW_WORDS:
+            suffix += f"_tagger{pipeline.tagger_window_words}"
         output = checkpoint_dir / f"validation_runtime_benchmark{suffix}.json"
         output.write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(json.dumps(metrics, indent=2, ensure_ascii=False))
