@@ -115,6 +115,11 @@ def main() -> None:
         default="float32",
         help="TensorFlow compute policy for the frozen inference model",
     )
+    parser.add_argument(
+        "--jit-compile",
+        action="store_true",
+        help="Compile each fixed classifier [batch, sequence] shape with XLA",
+    )
     args = parser.parse_args()
 
     for name, value in (
@@ -158,13 +163,15 @@ def main() -> None:
         weights_name=args.weights,
         classifier_batch_sizes=batch_profile,
         precision_policy=args.precision_policy,
+        jit_compile=args.jit_compile,
     )
     try:
         print(
             "Runtime config: "
             f"model={pipeline.config.model_name}, weights={args.weights}, precision={pipeline.precision_policy}, "
-            f"batch_mode={args.batch_mode}, batch_profile={pipeline.classifier_batch_sizes}, "
-            f"window_size={args.window_size}, buckets={pipeline.bucket_lengths}"
+            f"jit_compile={pipeline.jit_compile}, batch_mode={args.batch_mode}, "
+            f"batch_profile={pipeline.classifier_batch_sizes}, window_size={args.window_size}, "
+            f"buckets={pipeline.bucket_lengths}"
         )
 
         raw_encoding = pipeline.tokenizer(
@@ -183,6 +190,16 @@ def main() -> None:
 
         print("Warming all fixed classifier [batch, sequence] shapes...")
         pipeline.warmup_classifier()
+        throughput_compiled_shapes = pipeline.compiled_classifier_shapes
+        if pipeline.jit_compile:
+            expected_shapes = sorted([[batch_profile[bucket], bucket] for bucket in pipeline.bucket_lengths])
+            if throughput_compiled_shapes != expected_shapes:
+                raise RuntimeError(
+                    f"XLA warmup did not create exactly the expected fixed shapes: "
+                    f"expected={expected_shapes}, actual={throughput_compiled_shapes}"
+                )
+            print(f"XLA throughput shapes compiled: {throughput_compiled_shapes}")
+
         warm_indices = []
         for language in sorted(validation["language"].unique()):
             warm_indices.extend(validation.index[validation["language"] == language][:8].tolist())
@@ -269,6 +286,7 @@ def main() -> None:
 
         pipeline.classifier_batch_sizes = {bucket: 1 for bucket in pipeline.bucket_lengths}
         pipeline.warmup_classifier()
+        latency_compiled_shapes = pipeline.compiled_classifier_shapes
         sample_count = min(args.latency_samples, len(texts))
         sample_indices = np.linspace(0, len(texts) - 1, sample_count, dtype=int).tolist()
         sequential_latency: list[float] = []
@@ -293,11 +311,17 @@ def main() -> None:
             "checkpoint_dir": str(checkpoint_dir),
             "weights": args.weights,
             "precision_policy": pipeline.precision_policy,
+            "jit_compile": pipeline.jit_compile,
             "documents": int(len(validation)),
             "window_size": args.window_size,
             "batch_mode": args.batch_mode,
             "classifier_batch_sizes": {str(k): v for k, v in batch_profile.items()},
             "fixed_bucket_lengths": list(pipeline.bucket_lengths),
+            "xla": {
+                "enabled": pipeline.jit_compile,
+                "throughput_shapes": throughput_compiled_shapes,
+                "all_warmed_shapes_after_latency_setup": latency_compiled_shapes,
+            },
             "token_lengths": token_length_metrics,
             "baseline": {
                 "accuracy": baseline_accuracy,
@@ -340,7 +364,10 @@ def main() -> None:
                 "parallel_stages": _latency_stats(parallel_latency),
             },
         }
-        output = checkpoint_dir / f"validation_runtime_benchmark_{pipeline.precision_policy}.json"
+        suffix = f"_{pipeline.precision_policy}"
+        if pipeline.jit_compile:
+            suffix += "_xla"
+        output = checkpoint_dir / f"validation_runtime_benchmark{suffix}.json"
         output.write_text(json.dumps(metrics, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
         print(json.dumps(metrics, indent=2, ensure_ascii=False))
         print(f"Saved: {output}")
