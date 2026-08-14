@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
-from models.tagger import DocumentTagger, detect_language
+from models.tagger import DocumentTagger, TAGGING_WINDOW_WORDS, detect_language
 from models.text_classifier import (
     ClassifierConfig,
     build_model,
@@ -78,6 +78,7 @@ class DocumentCategorizationPipeline:
         classifier_batch_sizes: dict[int, int] | None = None,
         precision_policy: str = "float32",
         jit_compile: bool = False,
+        tagger_window_words: int = TAGGING_WINDOW_WORDS,
     ):
         checkpoint_dir = Path(checkpoint_dir)
         config_path = checkpoint_dir / "config.json"
@@ -90,6 +91,8 @@ class DocumentCategorizationPipeline:
             raise ValueError(
                 f"precision_policy must be one of {INFERENCE_PRECISION_POLICIES}, got {precision_policy!r}"
             )
+        if tagger_window_words <= 0:
+            raise ValueError("tagger_window_words must be positive")
 
         runtime = load_runtime_config(config_path)
         self.labels = list(runtime["labels"])
@@ -127,10 +130,11 @@ class DocumentCategorizationPipeline:
         tf_keras.mixed_precision.set_global_policy(precision_policy)
         self.precision_policy = tf_keras.mixed_precision.global_policy().name
         self.jit_compile = bool(jit_compile)
+        self.tagger_window_words = int(tagger_window_words)
         self.tokenizer, self.model = build_model(len(self.labels), self.config)
         self.model.load_weights(weights_path)
         self._compiled_classifier_functions: dict[tuple[int, int], object] = {}
-        self.tagger = DocumentTagger()
+        self.tagger = DocumentTagger(window_words=self.tagger_window_words)
         self._stage_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tagger-stage")
 
     @property
