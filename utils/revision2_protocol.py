@@ -64,8 +64,15 @@ def normalized_thread_subject(subject: str) -> str:
     return _WS_RE.sub(" ", value).strip().casefold()
 
 
-def message_number_from_filename(filename: str | Path) -> int | None:
-    name = Path(str(filename)).name
+def message_number_from_filename(filename: str | bytes | Path) -> int | None:
+    if isinstance(filename, bytes):
+        try:
+            raw_name = filename.decode("utf-8")
+        except UnicodeDecodeError:
+            raw_name = filename.decode("latin1", errors="replace")
+    else:
+        raw_name = str(filename)
+    name = Path(raw_name).name
     try:
         return int(name)
     except ValueError:
