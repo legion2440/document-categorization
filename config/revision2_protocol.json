@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "registered_at": "2026-08-16T23:11:00+05:00",
+  "status": "pre_registered_before_revision2_training",
+  "revision1": {
+    "result_file": "reports/revision1_performance_metrics.json",
+    "classification_accuracy": 0.819534984789222,
+    "f1_score_macro": 0.8191512653974548,
+    "processing_speed_docs_per_sec": 134.08416548759763,
+    "baseline_accuracy": 0.7781399391568883,
+    "relative_accuracy_improvement": 0.05319743088522766,
+    "disposition": "immutable_primary_pre_registered_result"
+  },
+  "test_policy": {
+    "revision2_is_second_and_final_test_evaluation": true,
+    "third_test_evaluation_forbidden_regardless_of_outcome": true,
+    "publish_revision1_and_revision2_together": true,
+    "no_test_error_analysis_for_revision2_design": true,
+    "no_candidate_or_checkpoint_selection_on_test": true,
+    "failure_rule": "If any assignment threshold fails on the single Revision 2 final test, record the failure and stop."
+  },
+  "assignment_thresholds": {
+    "accuracy_min": 0.85,
+    "macro_f1_min": 0.80,
+    "processing_speed_docs_per_sec_min": 100.0,
+    "per_language_accuracy_min": 0.80,
+    "baseline_relative_accuracy_improvement_min": 0.05,
+    "baseline_absolute_percentage_points_is_reported_but_not_the_registered_gate": true
+  },
+  "dataset": {
+    "source": "20_newsgroups",
+    "source_target_min": 11000,
+    "languages": ["en", "es"],
+    "validation_fraction": 0.15,
+    "category_selection": {
+      "rule": "Rank categories by cleaned official-train source count descending with lexicographic tie-break; take the minimal prefix whose cleaned official train+test source count reaches source_target_min.",
+      "recompute_after_revision2_cleaning": true,
+      "accept_changed_category_set_without_manual_override": true,
+      "forbidden_inputs": ["model_accuracy", "model_f1", "test_predictions", "test_errors", "class_separability_metrics"]
+    },
+    "test_access_note": "The category-count rule may mechanically count cleaned official test sources because that rule was fixed before Revision 1 and uses no model performance. No Revision 2 model selection may use test predictions or test metrics."
+  },
+  "document_representation": {
+    "sklearn_remove": ["footers", "quotes"],
+    "header_policy": {
+      "content_allowlist": ["subject"],
+      "explicit_denylist": [
+        "from",
+        "organization",
+        "distribution",
+        "to",
+        "path",
+        "nntp-posting-host",
+        "reply-to",
+        "sender",
+        "xref",
+        "newsgroups",
+        "message-id",
+        "references",
+        "date",
+        "lines"
+      ],
+      "unknown_header_policy": "drop",
+      "subject_role": "legitimate_document_title_signal",
+      "output_order": ["subject", "body"]
+    },
+    "classification_window_words": 150,
+    "window_must_not_be_tuned_for_revision2": true,
+    "translation": {
+      "translate_subject_and_body_together": true,
+      "reuse_revision1_translation_cache": false,
+      "cache_namespace": "translation_cache_revision2"
+    }
+  },
+  "train_only_diagnostics": {
+    "must_run_before_revision2_preprocessing_or_training": true,
+    "test_split_must_not_be_read": true,
+    "reply_prefix": {
+      "pattern": "re:",
+      "metric": "cramers_v(category, has_re_prefix)",
+      "strip_from_model_subject_if_cramers_v_gte": 0.10,
+      "retain_in_model_subject_if_below": 0.10,
+      "always_strip_for_thread_subject_normalization": true
+    },
+    "temporal_proxy": {
+      "reference_field": "Date",
+      "candidate_proxy": "message_number_from_filename",
+      "minimum_parseable_date_fraction": 0.80,
+      "minimum_median_within_category_spearman": 0.90,
+      "minimum_each_category_spearman": 0.75,
+      "decision_rule": "If Date coverage meets the minimum and message-number correlation meets both Spearman thresholds, use message number as the complete temporal proxy. If Date coverage meets the minimum but the proxy fails, use parsed Date and keep unparseable-date documents in train. If Date coverage is below the minimum, stop before retraining and revise the protocol without consulting test metrics."
+    },
+    "thread_subject_overlap": {
+      "normalization": "NFKC, casefold, whitespace collapse, repeated leading Re: removed",
+      "metric": "fraction of candidate validation documents whose non-empty normalized thread Subject also occurs in candidate train",
+      "group_split_if_fraction_gte": 0.05,
+      "document_split_if_below": 0.05
+    }
+  },
+  "validation_split": {
+    "source": "official_train_only",
+    "method": "latest_15_percent_per_category_by_registered_temporal_key",
+    "thread_grouping": {
+      "decision_source": "train_only_diagnostics.thread_subject_overlap",
+      "group_key": "category + normalized_thread_subject",
+      "missing_subjects_are_unique_groups": true,
+      "group_time": "maximum temporal key among documents in the group",
+      "assignment": "Sort groups by group_time and assign latest whole groups until validation contains at least 15% of category documents. Never split a group."
+    },
+    "en_es_pair_must_remain_in_same_split": true,
+    "random_stratified_validation_forbidden": true
+  },
+  "training": {
+    "model_name": "microsoft/mdeberta-v3-base",
+    "epochs": 5,
+    "learning_rate": 0.00002,
+    "batch_size": 2,
+    "optimizer": "AdamW",
+    "weight_decay": 0.01,
+    "warmup_ratio": 0.10,
+    "gradient_clip_norm": 1.0,
+    "no_ensemble": true,
+    "no_category_manual_changes": true,
+    "no_baseline_weakening": true,
+    "no_train_plus_validation_retrain": true,
+    "checkpoint_selection": {
+      "primary": "highest validation correct-document count",
+      "tie_break_1": "lower validation loss",
+      "tie_break_2": "earlier epoch"
+    }
+  },
+  "calibration": {
+    "method": "temperature_scaling",
+    "selection_metric": "negative_log_likelihood",
+    "fit_split": "revision2_validation",
+    "reuse_revision1_temperature": false,
+    "argmax_must_remain_unchanged": true
+  },
+  "runtime": {
+    "precision_policy": "float32",
+    "jit_compile": true,
+    "parallel_stages": true,
+    "tagger_window_words": 75,
+    "classification_window_words": 150,
+    "classifier_batch_profile": {
+      "64": 32,
+      "128": 32,
+      "192": 16,
+      "256": 16,
+      "384": 4,
+      "512": 4
+    },
+    "runtime_semantics_must_not_be_tuned_using_revision2_test": true
+  }
+}
