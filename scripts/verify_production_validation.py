@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 import sys
 import time
@@ -25,6 +26,15 @@ def _load_validation_only() -> pd.DataFrame:
     if "split" in validation.columns and not validation["split"].astype(str).eq("validation").all():
         raise ValueError("validation.csv contains rows not marked as validation")
     return validation
+
+
+def _selected_correct_documents(selected_accuracy: float, documents: int) -> int:
+    """Recover the integer correct-count represented by a serialized validation accuracy."""
+    if documents <= 0:
+        raise ValueError("documents must be positive")
+    if not math.isfinite(selected_accuracy) or not 0.0 <= selected_accuracy <= 1.0:
+        raise ValueError("selected validation accuracy must be finite and between 0 and 1")
+    return int(round(selected_accuracy * documents))
 
 
 def main() -> None:
@@ -66,11 +76,15 @@ def main() -> None:
 
     predicted_labels = [prediction.category for prediction in predictions]
     confidences = np.asarray([prediction.confidence for prediction in predictions], dtype=float)
-    accuracy = float(accuracy_score(validation["label"], predicted_labels))
-    macro_f1 = float(f1_score(validation["label"], predicted_labels, average="macro"))
+    truth_labels = validation["label"].astype(str).to_numpy()
+    predicted_array = np.asarray(predicted_labels, dtype=str)
+    actual_correct_documents = int(np.sum(truth_labels == predicted_array))
+    accuracy = float(accuracy_score(truth_labels, predicted_array))
+    macro_f1 = float(f1_score(truth_labels, predicted_array, average="macro"))
     speed = float(len(validation) / elapsed)
     selected_accuracy = float(pipeline.production_runtime["selected_validation_accuracy"])
-    accuracy_matches_selection = abs(accuracy - selected_accuracy) <= 1e-12
+    selected_correct_documents = _selected_correct_documents(selected_accuracy, len(validation))
+    accuracy_matches_selection = actual_correct_documents == selected_correct_documents
 
     per_language = {}
     for language, group in validation.groupby("language", sort=True):
@@ -92,6 +106,14 @@ def main() -> None:
         "mean_calibrated_confidence": float(np.mean(confidences)),
         "processing_speed_docs_per_sec": speed,
         "per_language": per_language,
+        "selection_verification": {
+            "serialized_selected_accuracy": selected_accuracy,
+            "observed_accuracy": accuracy,
+            "float_difference": abs(accuracy - selected_accuracy),
+            "selected_correct_documents": selected_correct_documents,
+            "observed_correct_documents": actual_correct_documents,
+            "exact_correct_count_match": accuracy_matches_selection,
+        },
         "accuracy_matches_frozen_selection": accuracy_matches_selection,
         "meets_accuracy_85_percent": accuracy >= 0.85,
         "meets_macro_f1_80_percent": macro_f1 >= 0.80,
@@ -110,8 +132,10 @@ def main() -> None:
     }
     if not accuracy_matches_selection:
         raise RuntimeError(
-            f"Frozen production accuracy {accuracy:.12f} differs from selected validation accuracy "
-            f"{selected_accuracy:.12f}"
+            "Frozen production correct-count differs from the validation-selected checkpoint: "
+            f"observed={actual_correct_documents}/{len(validation)}, "
+            f"selected={selected_correct_documents}/{len(validation)} "
+            f"(serialized selected accuracy={selected_accuracy:.12f}, observed={accuracy:.12f})"
         )
 
     output = ROOT / "models/checkpoints/production_validation_verification.json"
