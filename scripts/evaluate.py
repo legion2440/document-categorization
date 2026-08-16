@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from pathlib import Path
 import sys
 import time
@@ -29,6 +30,76 @@ def _load_test_only() -> pd.DataFrame:
     return test
 
 
+def _mcnemar_exact(transformer_correct: np.ndarray, baseline_correct: np.ndarray) -> dict[str, object]:
+    transformer_only = int(np.sum(transformer_correct & ~baseline_correct))
+    baseline_only = int(np.sum(~transformer_correct & baseline_correct))
+    discordant = transformer_only + baseline_only
+    if discordant == 0:
+        p_value = 1.0
+    else:
+        tail = min(transformer_only, baseline_only)
+        probability = sum(math.comb(discordant, k) for k in range(tail + 1)) / (2 ** discordant)
+        p_value = min(1.0, 2.0 * probability)
+    return {
+        "transformer_only_correct": transformer_only,
+        "baseline_only_correct": baseline_only,
+        "discordant_pairs": discordant,
+        "exact_two_sided_p_value": float(p_value),
+    }
+
+
+def _cluster_bootstrap_improvement(
+    frame: pd.DataFrame,
+    transformer_correct: np.ndarray,
+    baseline_correct: np.ndarray,
+    *,
+    iterations: int = 2000,
+    seed: int = 42,
+) -> dict[str, object]:
+    if iterations <= 0:
+        raise ValueError("bootstrap iterations must be positive")
+    if "pair_id" not in frame.columns:
+        raise ValueError("pair_id is required for cluster bootstrap")
+
+    cluster_ids = frame["pair_id"].astype(str).to_numpy()
+    unique_clusters = np.unique(cluster_ids)
+    indices_by_cluster = {
+        cluster: np.flatnonzero(cluster_ids == cluster)
+        for cluster in unique_clusters
+    }
+    rng = np.random.default_rng(seed)
+    absolute_samples = np.empty(iterations, dtype=float)
+    relative_samples = np.empty(iterations, dtype=float)
+
+    for iteration in range(iterations):
+        sampled_clusters = rng.choice(unique_clusters, size=len(unique_clusters), replace=True)
+        sampled_indices = np.concatenate([indices_by_cluster[cluster] for cluster in sampled_clusters])
+        transformer_accuracy = float(np.mean(transformer_correct[sampled_indices]))
+        baseline_accuracy = float(np.mean(baseline_correct[sampled_indices]))
+        absolute_samples[iteration] = transformer_accuracy - baseline_accuracy
+        relative_samples[iteration] = (
+            transformer_accuracy / baseline_accuracy - 1.0
+            if baseline_accuracy > 0
+            else np.nan
+        )
+
+    finite_relative = relative_samples[np.isfinite(relative_samples)]
+    return {
+        "cluster": "pair_id",
+        "clusters": int(len(unique_clusters)),
+        "iterations": int(iterations),
+        "seed": int(seed),
+        "absolute_accuracy_points_95_ci": [
+            float(np.percentile(absolute_samples, 2.5)),
+            float(np.percentile(absolute_samples, 97.5)),
+        ],
+        "relative_accuracy_improvement_95_ci": [
+            float(np.percentile(finite_relative, 2.5)),
+            float(np.percentile(finite_relative, 97.5)),
+        ],
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -41,12 +112,15 @@ def main() -> None:
         action="store_true",
         help="Allow replacing an existing final report; normally leave disabled",
     )
+    parser.add_argument("--bootstrap-iterations", type=int, default=2000)
     args = parser.parse_args()
 
     if not args.confirm_final_test:
         raise SystemExit(
             "Final test is guarded. Re-run with --confirm-final-test only after production freeze/validation is complete."
         )
+    if args.bootstrap_iterations <= 0:
+        raise SystemExit("--bootstrap-iterations must be positive")
 
     reports = ROOT / "reports"
     metrics_path = reports / "performance_metrics.json"
@@ -93,6 +167,8 @@ def main() -> None:
         raise RuntimeError("Final pipeline did not produce exactly one prediction per test document")
 
     predicted_labels = [prediction.category for prediction in predictions]
+    predicted_ids = np.asarray([pipeline.labels.index(label) for label in predicted_labels], dtype=int)
+    truth_ids = test["label_id"].astype(int).to_numpy()
     detected_languages = [prediction.language for prediction in predictions]
     confidence = np.asarray([prediction.confidence for prediction in predictions], dtype=float)
     accuracy = float(accuracy_score(test["label"], predicted_labels))
@@ -112,10 +188,26 @@ def main() -> None:
 
     baseline_model = joblib.load(ROOT / "models/checkpoints/baseline.joblib")
     baseline_pred = np.asarray(baseline_model.predict(test["text"].astype(str).tolist()), dtype=int)
-    baseline_accuracy = float(accuracy_score(test["label_id"].astype(int), baseline_pred))
-    baseline_f1 = float(f1_score(test["label_id"].astype(int), baseline_pred, average="macro"))
+    baseline_accuracy = float(accuracy_score(truth_ids, baseline_pred))
+    baseline_f1 = float(f1_score(truth_ids, baseline_pred, average="macro"))
     absolute_improvement = accuracy - baseline_accuracy
     relative_improvement = accuracy / baseline_accuracy - 1.0
+
+    transformer_correct = predicted_ids == truth_ids
+    baseline_correct = baseline_pred == truth_ids
+    mcnemar_by_language: dict[str, object] = {}
+    for language, group in test.groupby("language", sort=True):
+        indices = group.index.to_numpy(dtype=int)
+        mcnemar_by_language[str(language)] = _mcnemar_exact(
+            transformer_correct[indices], baseline_correct[indices]
+        )
+    bootstrap = _cluster_bootstrap_improvement(
+        test,
+        transformer_correct,
+        baseline_correct,
+        iterations=args.bootstrap_iterations,
+        seed=42,
+    )
 
     metrics = {
         "evaluation_split": "test",
@@ -142,6 +234,10 @@ def main() -> None:
         "meets_baseline_plus_5_percentage_points": absolute_improvement >= 0.05,
         "test_documents": int(len(test)),
         "test_source_documents": int(test["pair_id"].nunique()) if "pair_id" in test else None,
+        "significance": {
+            "mcnemar_exact_by_language": mcnemar_by_language,
+            "cluster_bootstrap": bootstrap,
+        },
         "runtime": pipeline.production_runtime,
         "calibration": {
             "method": pipeline.calibration.get("method"),
