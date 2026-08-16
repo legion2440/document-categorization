@@ -12,25 +12,35 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from utils.inference import DocumentCategorizationPipeline
+from utils.production_inference import ProductionDocumentCategorizationPipeline
 
 st.set_page_config(page_title="Document Categorization", page_icon="📄", layout="wide")
 st.title("📄 Intelligent Document Categorization & Tagging")
-st.caption("Multilingual DistilBERT classification + spaCy context-aware tagging")
+st.caption("Multilingual mDeBERTa classification + calibrated confidence + spaCy context-aware tagging")
+
 
 @st.cache_resource
 def load_pipeline():
-    return DocumentCategorizationPipeline(ROOT / "models/checkpoints")
+    return ProductionDocumentCategorizationPipeline(ROOT / "models/checkpoints")
+
 
 @st.cache_data
 def load_metrics():
     path = ROOT / "reports/performance_metrics.json"
     return json.loads(path.read_text()) if path.exists() else None
 
+
+@st.cache_data
+def load_calibration():
+    path = ROOT / "models/checkpoints/calibration.json"
+    return json.loads(path.read_text()) if path.exists() else None
+
+
 @st.cache_data
 def load_examples():
     path = ROOT / "reports/example_predictions.csv"
     return pd.read_csv(path) if path.exists() else None
+
 
 metrics = load_metrics()
 if metrics:
@@ -40,7 +50,18 @@ if metrics:
     c3.metric("Throughput", f"{metrics['processing_speed_docs_per_sec']:.1f} docs/s")
     c4.metric("Languages", len(metrics["languages_supported"]))
 else:
-    st.info("Performance report will appear after `python scripts/evaluate.py`.")
+    st.info("Final performance report will appear after the guarded test evaluation.")
+
+calibration = load_calibration()
+if calibration:
+    before = calibration.get("before", {})
+    after = calibration.get("after", {})
+    with st.expander("Confidence calibration"):
+        st.write(
+            f"Temperature: **{float(calibration['temperature']):.3f}** · "
+            f"ECE: **{float(before.get('ece', 0.0)):.3f} → {float(after.get('ece', 0.0)):.3f}** · "
+            f"NLL: **{float(before.get('nll', 0.0)):.3f} → {float(after.get('nll', 0.0)):.3f}**"
+        )
 
 st.subheader("Real-time categorization")
 text = st.text_area("Document text", height=220, placeholder="Paste an English or Spanish document here...")
@@ -56,7 +77,7 @@ if st.button("Categorize", type="primary"):
             left, right = st.columns([1, 2])
             with left:
                 st.metric("Category", prediction.category)
-                st.metric("Confidence", f"{prediction.confidence:.1%}")
+                st.metric("Calibrated confidence", f"{prediction.confidence:.1%}")
                 st.metric("Language", prediction.language.upper())
             with right:
                 st.write("**Tags**")
@@ -85,4 +106,4 @@ if examples is not None and not examples.empty:
     st.write("**Example predictions**")
     st.dataframe(examples.head(25), use_container_width=True, hide_index=True)
 else:
-    st.info("Monitoring charts use `reports/example_predictions.csv`, generated during evaluation.")
+    st.info("Monitoring charts use `reports/example_predictions.csv`, generated during final evaluation.")
