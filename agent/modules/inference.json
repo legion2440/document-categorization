@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "module_id": "inference",
-  "purpose": "Batch classification plus tagging real-time inference pipeline",
+  "purpose": "Batch classification plus tagging real-time inference pipeline with frozen calibrated production policy",
   "paths": [
-    {"path": "utils/inference.py", "lifecycle": "implemented", "provenance": "authored"}
+    {"path": "utils/inference.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "utils/production_inference.py", "lifecycle": "implemented", "provenance": "authored"}
   ],
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
-  "tests": ["tests/test_inference_contract.py"],
+  "tests": ["tests/test_inference_contract.py", "tests/test_production_runtime.py"],
   "runtime_evidence": []
 }
