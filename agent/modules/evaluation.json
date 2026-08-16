@@ -1,12 +1,13 @@
 {
   "schema_version": 1,
   "module_id": "evaluation",
-  "purpose": "Metrics, throughput benchmark, preprocessing probe, report generation and audit validation",
+  "purpose": "Metrics, throughput benchmark, calibration, production freeze, report generation and audit validation",
   "paths": [
     {"path": "scripts/evaluate.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/evaluate_validation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/benchmark_validation_runtime.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/calibrate_validation.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/freeze_production.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/evaluate_ensemble_validation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/refine_ensemble_validation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/probe_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
@@ -15,6 +16,6 @@
   ],
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
-  "tests": ["tests/test_project_validation.py"],
+  "tests": ["tests/test_project_validation.py", "tests/test_production_runtime.py"],
   "runtime_evidence": []
 }
