@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fit temperature scaling on validation only; never touch the test split."""
+"""Fit temperature scaling on validation only; never read the test split."""
 from __future__ import annotations
 
 import argparse
@@ -8,13 +8,13 @@ from pathlib import Path
 import sys
 
 import numpy as np
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from models.calibration import build_calibration_report
 from models.text_classifier import load_runtime_config, tokenize_with_budget
-from utils.data_loader import load_processed_splits
 from utils.inference import (
     DocumentCategorizationPipeline,
     _bucket_for_length,
@@ -41,6 +41,18 @@ def _configure_tensorflow() -> None:
             tf.config.experimental.set_memory_growth(gpu, True)
         except RuntimeError:
             pass
+
+
+def _load_validation_only() -> pd.DataFrame:
+    path = ROOT / "data/processed_data/validation.csv"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Validation dataset is missing: {path}. Run `python scripts/prepare_data.py` first."
+        )
+    validation = pd.read_csv(path).reset_index(drop=True)
+    if "split" in validation.columns and not validation["split"].astype(str).eq("validation").all():
+        raise ValueError("validation.csv contains rows not marked as validation")
+    return validation
 
 
 def _windows(values: list[str], size: int):
@@ -112,7 +124,7 @@ def main() -> None:
         max_batch_size=args.max_classifier_batch_size,
     )
 
-    validation = load_processed_splits(ROOT / "data/processed_data")["validation"].reset_index(drop=True)
+    validation = _load_validation_only()
     texts = [
         canonical_window(text, CLASSIFICATION_WINDOW_WORDS)
         for text in validation["text"].astype(str).tolist()
@@ -168,6 +180,7 @@ def main() -> None:
             "schema_version": 1,
             "split": "validation",
             "test_split_touched": False,
+            "test_split_read": False,
             "checkpoint_dir": str(checkpoint_dir),
             "weights": args.weights,
             "model_name": pipeline.config.model_name,
