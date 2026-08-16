@@ -37,6 +37,7 @@ def test_thread_subject_normalization_removes_re_prefix_only_for_thread_identity
 
 def test_message_number_and_date_parsing():
     assert message_number_from_filename("/tmp/comp.graphics/12345") == 12345
+    assert message_number_from_filename(b"/tmp/comp.graphics/12345") == 12345
     assert message_number_from_filename("/tmp/comp.graphics/not-a-number") is None
     assert parsed_date_timestamp("Mon, 1 Mar 1993 12:30:00 GMT") is not None
     assert parsed_date_timestamp("not a date") is None
