@@ -1,0 +1,110 @@
+{
+  "evaluation_split": "test",
+  "final_test_confirmed": true,
+  "classification_accuracy": 0.819534984789222,
+  "f1_score_macro": 0.8191512653974548,
+  "processing_speed_docs_per_sec": 134.08416548759763,
+  "language_detection_accuracy": 0.9850065189048239,
+  "languages_supported": [
+    "en",
+    "es"
+  ],
+  "per_language_accuracy": {
+    "en": 0.8279009126466753,
+    "es": 0.8111690569317688
+  },
+  "per_language_f1_macro": {
+    "en": 0.8274438501820544,
+    "es": 0.8108507866882482
+  },
+  "mean_calibrated_confidence": 0.8802028073039212,
+  "baseline_accuracy": 0.7781399391568883,
+  "baseline_f1_macro": 0.777863475772549,
+  "accuracy_improvement_over_baseline_absolute_points": 0.04139504563233376,
+  "accuracy_improvement_over_baseline_relative": 0.05319743088522766,
+  "meets_accuracy_85_percent": false,
+  "meets_macro_f1_80_percent": true,
+  "meets_speed_100_docs_per_sec": true,
+  "meets_per_language_accuracy_80_percent": true,
+  "meets_baseline_relative_plus_5_percent": true,
+  "meets_baseline_plus_5_percentage_points": false,
+  "test_documents": 9204,
+  "test_source_documents": 4602,
+  "significance": {
+    "mcnemar_exact_by_language": {
+      "en": {
+        "transformer_only_correct": 420,
+        "baseline_only_correct": 250,
+        "discordant_pairs": 670,
+        "exact_two_sided_p_value": 5.250757194362413e-11
+      },
+      "es": {
+        "transformer_only_correct": 482,
+        "baseline_only_correct": 271,
+        "discordant_pairs": 753,
+        "exact_two_sided_p_value": 1.3290613221459932e-14
+      }
+    },
+    "cluster_bootstrap": {
+      "cluster": "pair_id",
+      "clusters": 4602,
+      "iterations": 2000,
+      "seed": 42,
+      "absolute_accuracy_points_95_ci": [
+        0.03150803998261631,
+        0.05084745762711862
+      ],
+      "relative_accuracy_improvement_95_ci": [
+        0.04010961507789331,
+        0.06563241522536833
+      ]
+    }
+  },
+  "runtime": {
+    "schema_version": 1,
+    "source_checkpoint_dir": "/mnt/d/TSchool/document-categorization/models/checkpoints_mdeberta_b2",
+    "source_weights": "text_classifier_best_accuracy.h5",
+    "weights": "text_classifier_best.h5",
+    "selection_metric": "validation_accuracy",
+    "selected_epoch": 5,
+    "selected_validation_accuracy": 0.8571428656578064,
+    "model_name": "microsoft/mdeberta-v3-base",
+    "precision_policy": "float32",
+    "jit_compile": true,
+    "parallel_stages": true,
+    "classification_window_words": 150,
+    "tagger_window_words": 75,
+    "classifier_batch_sizes": {
+      "64": 32,
+      "128": 32,
+      "192": 16,
+      "256": 16,
+      "384": 4,
+      "512": 4
+    },
+    "fixed_bucket_lengths": [
+      64,
+      128,
+      192,
+      256,
+      384,
+      512
+    ],
+    "calibration_file": "calibration.json",
+    "temperature": 2.5834003220128468,
+    "test_split_read": false,
+    "transfer_modes": {
+      "epoch_01.h5": "hardlink",
+      "epoch_02.h5": "hardlink",
+      "epoch_03.h5": "hardlink",
+      "epoch_04.h5": "hardlink",
+      "epoch_05.h5": "hardlink",
+      "text_classifier_best.h5": "hardlink"
+    }
+  },
+  "calibration": {
+    "method": "temperature_scaling",
+    "temperature": 2.5834003220128468,
+    "fitted_split": "validation"
+  }
+}
