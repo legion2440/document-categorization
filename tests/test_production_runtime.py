@@ -2,6 +2,7 @@ import json
 
 import pytest
 
+from scripts.verify_production_validation import _selected_correct_documents
 from utils.production_inference import load_calibration, load_production_runtime
 
 
@@ -52,3 +53,13 @@ def test_calibration_rejects_non_positive_temperature(tmp_path):
     )
     with pytest.raises(ValueError, match="positive and finite"):
         load_calibration(tmp_path)
+
+
+def test_selected_correct_documents_handles_float32_metric_roundoff():
+    selected_accuracy = 0.857142865658
+    assert _selected_correct_documents(selected_accuracy, 2086) == 1788
+
+
+def test_selected_correct_documents_rejects_invalid_accuracy():
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        _selected_correct_documents(1.1, 2086)
