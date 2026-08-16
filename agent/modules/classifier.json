@@ -5,6 +5,7 @@
   "paths": [
     {"path": "models/text_classifier.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "models/baseline.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "models/calibration.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/transfer_learning.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/model_optimization.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/train.py", "lifecycle": "implemented", "provenance": "authored"},
@@ -12,6 +13,6 @@
   ],
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
-  "tests": ["tests/test_classifier_config.py"],
+  "tests": ["tests/test_classifier_config.py", "tests/test_calibration.py"],
   "runtime_evidence": []
 }
