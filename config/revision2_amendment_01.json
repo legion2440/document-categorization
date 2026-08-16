@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "amendment": 1,
+  "registered_at": "2026-08-16T23:47:00+05:00",
+  "status": "registered_before_revision2_preprocessing_or_training",
+  "reason": {
+    "source": "official_train_only_diagnostics",
+    "documents": 11314,
+    "test_split_read": false,
+    "parseable_date_documents": 0,
+    "parseable_date_fraction": 0.0,
+    "original_protocol_action": "stop_before_retraining",
+    "conclusion": "The registered temporal validation design cannot be reconstructed from official train because the reference Date field is unavailable. No temporal proxy will be assumed without train-only evidence."
+  },
+  "unchanged_decisions": {
+    "revision1_result_remains_immutable": true,
+    "revision2_is_second_and_final_test_evaluation": true,
+    "third_test_evaluation_forbidden_regardless_of_outcome": true,
+    "subject_is_legitimate_document_title_signal": true,
+    "strip_re_prefix_from_model_subject": true,
+    "classification_window_words": 150,
+    "model_name": "microsoft/mdeberta-v3-base",
+    "epochs": 5,
+    "learning_rate": 0.00002,
+    "batch_size": 2,
+    "no_ensemble": true,
+    "no_baseline_weakening": true,
+    "no_train_plus_validation_retrain": true,
+    "calibration_method": "temperature_scaling"
+  },
+  "validation_split_override": {
+    "source": "official_train_only",
+    "method": "deterministic_thread_grouped_stratified_fallback",
+    "validation_fraction": 0.15,
+    "seed": 42,
+    "group_key": "category + normalized_thread_subject",
+    "subject_normalization": "NFKC, casefold, whitespace collapse, repeated leading Re: removed",
+    "missing_subjects_are_unique_groups": true,
+    "assignment": "Within each category, deterministically shuffle whole thread groups with seed 42 and assign whole groups to validation until validation contains at least 15% of that category's source documents. Never split a group.",
+    "en_es_pair_must_remain_in_same_split": true,
+    "forbidden_inputs": [
+      "revision1_test_predictions",
+      "revision1_test_errors",
+      "revision1_test_category_metrics",
+      "revision1_test_document_content",
+      "model_accuracy",
+      "model_f1",
+      "class_separability_metrics"
+    ]
+  },
+  "failure_rule": "After Revision 2 production freeze, run the held-out test exactly once. If any assignment threshold fails, publish both Revision 1 and Revision 2 results and stop; no third test run is permitted."
+}
