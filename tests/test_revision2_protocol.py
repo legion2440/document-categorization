@@ -10,6 +10,7 @@ from utils.revision2_protocol import (
     parse_rfc_header_block,
     parsed_date_timestamp,
     spearman_correlation,
+    strip_re_prefix,
 )
 
 
@@ -29,15 +30,17 @@ def test_header_parser_unfolds_subject_and_separates_body():
     assert body == "This is the body.\n"
 
 
-def test_thread_subject_normalization_removes_re_prefix_only_for_thread_identity():
+def test_subject_helpers_remove_re_prefix_but_preserve_authored_title_case():
     subject = "  Re: RE:  Graphics   Card  "
     assert has_re_prefix(subject)
+    assert strip_re_prefix(subject) == "Graphics Card"
     assert normalized_thread_subject(subject) == "graphics card"
 
 
 def test_message_number_and_date_parsing():
     assert message_number_from_filename("/tmp/comp.graphics/12345") == 12345
     assert message_number_from_filename(b"/tmp/comp.graphics/12345") == 12345
+    assert message_number_from_filename("b'/tmp/comp.graphics/12345'") == 12345
     assert message_number_from_filename("/tmp/comp.graphics/not-a-number") is None
     assert parsed_date_timestamp("Mon, 1 Mar 1993 12:30:00 GMT") is not None
     assert parsed_date_timestamp("not a date") is None
