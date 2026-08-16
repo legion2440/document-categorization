@@ -13,6 +13,7 @@ import numpy as np
 _HEADER_CONTINUATION_RE = re.compile(r"^[ \t]+")
 _RE_PREFIX_RE = re.compile(r"^(?:\s*re\s*:\s*)+", re.IGNORECASE)
 _WS_RE = re.compile(r"\s+")
+_TRAILING_MESSAGE_NUMBER_RE = re.compile(r"(\d+)(?:[^\d]*)$")
 
 
 def parse_rfc_header_block(raw_text: str) -> tuple[dict[str, str], str]:
@@ -45,7 +46,10 @@ def parse_rfc_header_block(raw_text: str) -> tuple[dict[str, str], str]:
             continue
         values.setdefault(key, []).append(value.strip())
 
-    headers = {key: " ".join(part for part in parts if part).strip() for key, parts in values.items()}
+    headers = {
+        key: " ".join(part for part in parts if part).strip()
+        for key, parts in values.items()
+    }
     return headers, body
 
 
@@ -58,10 +62,15 @@ def has_re_prefix(subject: str) -> bool:
     return bool(_RE_PREFIX_RE.match(str(subject)))
 
 
-def normalized_thread_subject(subject: str) -> str:
+def strip_re_prefix(subject: str) -> str:
+    """Remove repeated leading Re: markers while preserving the authored title text."""
     value = unicodedata.normalize("NFKC", str(subject))
     value = _RE_PREFIX_RE.sub("", value)
-    return _WS_RE.sub(" ", value).strip().casefold()
+    return _WS_RE.sub(" ", value).strip()
+
+
+def normalized_thread_subject(subject: str) -> str:
+    return strip_re_prefix(subject).casefold()
 
 
 def message_number_from_filename(filename: str | bytes | Path) -> int | None:
@@ -72,11 +81,9 @@ def message_number_from_filename(filename: str | bytes | Path) -> int | None:
             raw_name = filename.decode("latin1", errors="replace")
     else:
         raw_name = str(filename)
-    name = Path(raw_name).name
-    try:
-        return int(name)
-    except ValueError:
-        return None
+    normalized = raw_name.replace("\\", "/").rstrip("/")
+    match = _TRAILING_MESSAGE_NUMBER_RE.search(normalized)
+    return int(match.group(1)) if match else None
 
 
 def parsed_date_timestamp(value: str) -> float | None:
@@ -143,7 +150,9 @@ def cramers_v_category_binary(categories: list[str], flags: list[bool]) -> float
     column_totals = table.sum(axis=0, keepdims=True)
     expected = row_totals @ column_totals / total
     valid = expected > 0
-    chi_square = float(np.sum(((table - expected) ** 2 / np.where(valid, expected, 1.0))[valid]))
+    chi_square = float(
+        np.sum(((table - expected) ** 2 / np.where(valid, expected, 1.0))[valid])
+    )
     denominator = min(table.shape[0] - 1, table.shape[1] - 1)
     if denominator <= 0:
         return 0.0
