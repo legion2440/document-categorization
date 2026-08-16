@@ -18,5 +18,5 @@
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
   "tests": ["tests/test_project_validation.py", "tests/test_production_runtime.py"],
-  "runtime_evidence": []
+  "runtime_evidence": ["reports/revision1_performance_metrics.json"]
 }
