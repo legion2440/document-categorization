@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train the classical baseline then fine-tune a multilingual BERT-family classifier."""
+"""Train the baseline and fine-tune the registered multilingual classifier."""
 from __future__ import annotations
 
 import argparse
@@ -7,18 +7,35 @@ import json
 from pathlib import Path
 import sys
 
+import pandas as pd
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from models.baseline import train_baseline
 from models.text_classifier import ClassifierConfig
-from utils.data_loader import load_processed_splits
 from utils.transfer_learning import train_transformer
 
 
 def _resolve_output_dir(value: str) -> Path:
     path = Path(value)
     return path if path.is_absolute() else ROOT / path
+
+
+def _load_training_splits_only() -> dict[str, pd.DataFrame]:
+    output = ROOT / "data/processed_data"
+    paths = {
+        "train": output / "train.csv",
+        "validation": output / "validation.csv",
+    }
+    missing = [str(path) for path in paths.values() if not path.exists()]
+    if missing:
+        raise FileNotFoundError("Missing training split(s): " + ", ".join(missing))
+    splits = {name: pd.read_csv(path).reset_index(drop=True) for name, path in paths.items()}
+    for name, frame in splits.items():
+        if "split" in frame.columns and not frame["split"].astype(str).eq(name).all():
+            raise ValueError(f"{name}.csv contains rows not marked as {name}")
+    return splits
 
 
 def _configure_tensorflow(*, allow_cpu: bool) -> None:
@@ -62,7 +79,8 @@ def main() -> None:
     checkpoint_dir = _resolve_output_dir(args.checkpoint_dir)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-    splits = load_processed_splits(ROOT / "data/processed_data")
+    splits = _load_training_splits_only()
+    print("Training data scope: train.csv + validation.csv only; test.csv is not read")
     baseline = train_baseline(
         splits["train"],
         splits["validation"],
@@ -71,6 +89,8 @@ def main() -> None:
     (checkpoint_dir / "baseline_metrics.json").write_text(
         json.dumps(
             {
+                "split": "validation",
+                "test_split_read": False,
                 "validation_accuracy": baseline.accuracy,
                 "validation_f1_macro": baseline.f1_macro,
             },
