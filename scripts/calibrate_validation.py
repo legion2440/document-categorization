@@ -95,7 +95,7 @@ def _window_logits(pipeline: DocumentCategorizationPipeline, texts: list[str]) -
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--checkpoint-dir", default="models/checkpoints_mdeberta_b2")
+    parser.add_argument("--checkpoint-dir", default="models/checkpoints_revision2")
     parser.add_argument("--weights", default="text_classifier_best_accuracy.h5")
     parser.add_argument("--classifier-batch-size", type=int, default=4)
     parser.add_argument("--max-classifier-batch-size", type=int, default=32)
@@ -178,6 +178,7 @@ def main() -> None:
 
         report = {
             "schema_version": 1,
+            "revision": 2,
             "split": "validation",
             "test_split_touched": False,
             "test_split_read": False,
