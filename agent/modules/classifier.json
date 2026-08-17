@@ -9,10 +9,16 @@
     {"path": "utils/transfer_learning.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "utils/model_optimization.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/train.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/train_revision2.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/preflight_revision2.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/smoke_classifier.py", "lifecycle": "implemented", "provenance": "authored"}
   ],
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
-  "tests": ["tests/test_classifier_config.py", "tests/test_calibration.py"],
-  "runtime_evidence": []
+  "tests": [
+    "tests/test_classifier_config.py",
+    "tests/test_calibration.py",
+    "tests/test_transfer_learning_selection.py"
+  ],
+  "runtime_evidence": ["reports/revision2_preflight.json"]
 }
