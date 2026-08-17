@@ -9,6 +9,7 @@
     {"path": "docs/revision2_amendment_01.md", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/prepare_data.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/diagnose_revision2_train.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/preflight_revision2.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/probe_preprocessing.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/stress_translation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/preflight_dataset.py", "lifecycle": "implemented", "provenance": "authored"},
