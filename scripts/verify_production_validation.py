@@ -28,8 +28,21 @@ def _load_validation_only() -> pd.DataFrame:
     return validation
 
 
-def _selected_correct_documents(selected_accuracy: float, documents: int) -> int:
-    """Recover the integer correct-count represented by a serialized validation accuracy."""
+def _selected_correct_documents(runtime: dict[str, object], documents: int) -> int:
+    """Use the exact frozen count when available; retain legacy fallback for old artifacts."""
+    explicit = runtime.get("selected_validation_correct_documents")
+    explicit_documents = runtime.get("selected_validation_documents")
+    if explicit is not None:
+        if explicit_documents is None or int(explicit_documents) != documents:
+            raise ValueError(
+                "Frozen selected_validation_documents does not match the current validation corpus"
+            )
+        correct = int(explicit)
+        if not 0 <= correct <= documents:
+            raise ValueError("Frozen selected_validation_correct_documents is invalid")
+        return correct
+
+    selected_accuracy = float(runtime["selected_validation_accuracy"])
     if documents <= 0:
         raise ValueError("documents must be positive")
     if not math.isfinite(selected_accuracy) or not 0.0 <= selected_accuracy <= 1.0:
@@ -82,8 +95,9 @@ def main() -> None:
     accuracy = float(accuracy_score(truth_labels, predicted_array))
     macro_f1 = float(f1_score(truth_labels, predicted_array, average="macro"))
     speed = float(len(validation) / elapsed)
-    selected_accuracy = float(pipeline.production_runtime["selected_validation_accuracy"])
-    selected_correct_documents = _selected_correct_documents(selected_accuracy, len(validation))
+    runtime = pipeline.production_runtime
+    selected_accuracy = float(runtime["selected_validation_accuracy"])
+    selected_correct_documents = _selected_correct_documents(runtime, len(validation))
     accuracy_matches_selection = actual_correct_documents == selected_correct_documents
 
     per_language = {}
@@ -97,7 +111,8 @@ def main() -> None:
         }
 
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
+        "revision": int(runtime.get("revision", 1)),
         "split": "validation",
         "test_split_read": False,
         "documents": int(len(validation)),
@@ -121,7 +136,7 @@ def main() -> None:
         "meets_per_language_accuracy_80_percent": all(
             metrics["accuracy"] >= 0.80 for metrics in per_language.values()
         ),
-        "runtime": pipeline.production_runtime,
+        "runtime": runtime,
         "calibration": {
             "temperature": pipeline.temperature,
             "validation_ece_before": pipeline.calibration["before"]["ece"],
