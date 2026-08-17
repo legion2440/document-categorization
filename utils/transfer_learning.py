@@ -88,20 +88,41 @@ def _bucketed_dataset(
     return dataset.prefetch(tf.data.AUTOTUNE), truncated_documents, batch_count
 
 
+def _selected_epoch_index(
+    val_accuracies: list[float],
+    val_losses: list[float],
+    validation_documents: int,
+) -> int:
+    if len(val_accuracies) != len(val_losses) or not val_accuracies:
+        raise ValueError("Validation accuracy/loss histories must be non-empty and aligned")
+    if validation_documents <= 0:
+        raise ValueError("validation_documents must be positive")
+    ranked = []
+    for index, (accuracy, loss) in enumerate(zip(val_accuracies, val_losses)):
+        correct = int(round(float(accuracy) * validation_documents))
+        ranked.append((-correct, float(loss), index))
+    return min(ranked)[2]
+
+
 class EpochCheckpoint:
-    """Persist each epoch and track best validation loss and accuracy independently."""
+    """Persist each epoch and track best loss plus the registered accuracy selection."""
 
     @staticmethod
-    def build(checkpoint_dir: Path):
+    def build(checkpoint_dir: Path, *, validation_documents: int):
         import tf_keras
+
+        if validation_documents <= 0:
+            raise ValueError("validation_documents must be positive")
 
         class _Callback(tf_keras.callbacks.Callback):
             def __init__(self):
                 super().__init__()
                 self.best_val_loss = float("inf")
                 self.best_epoch = 0
-                self.best_val_accuracy = float("-inf")
-                self.best_accuracy_epoch = 0
+                self.selected_correct_documents = -1
+                self.selected_val_accuracy = float("-inf")
+                self.selected_val_loss = float("inf")
+                self.selected_epoch = 0
 
             def on_epoch_end(self, epoch, logs=None):
                 logs = logs or {}
@@ -109,37 +130,54 @@ class EpochCheckpoint:
                 target = checkpoint_dir / f"epoch_{epoch_number:02d}.h5"
                 self.model.save_weights(target)
 
-                val_loss = logs.get("val_loss")
-                if val_loss is not None:
-                    val_loss = float(val_loss)
-                    if val_loss < self.best_val_loss:
-                        self.best_val_loss = val_loss
-                        self.best_epoch = epoch_number
-                        self.model.save_weights(checkpoint_dir / "text_classifier_best.h5")
-                        (checkpoint_dir / "best_epoch.json").write_text(
-                            json.dumps(
-                                {
-                                    "best_epoch": self.best_epoch,
-                                    "best_val_loss": self.best_val_loss,
-                                },
-                                indent=2,
-                            )
-                            + "\n",
-                            encoding="utf-8",
-                        )
+                val_loss_raw = logs.get("val_loss")
+                val_accuracy_raw = logs.get("val_accuracy")
+                val_loss = float(val_loss_raw) if val_loss_raw is not None else None
+                val_accuracy = float(val_accuracy_raw) if val_accuracy_raw is not None else None
 
-                val_accuracy = logs.get("val_accuracy")
-                if val_accuracy is not None:
-                    val_accuracy = float(val_accuracy)
-                    if val_accuracy > self.best_val_accuracy:
-                        self.best_val_accuracy = val_accuracy
-                        self.best_accuracy_epoch = epoch_number
+                if val_loss is not None and val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.best_epoch = epoch_number
+                    self.model.save_weights(checkpoint_dir / "text_classifier_best.h5")
+                    (checkpoint_dir / "best_epoch.json").write_text(
+                        json.dumps(
+                            {
+                                "best_epoch": self.best_epoch,
+                                "best_val_loss": self.best_val_loss,
+                            },
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+
+                if val_accuracy is not None and val_loss is not None:
+                    correct_documents = int(round(val_accuracy * validation_documents))
+                    candidate = (-correct_documents, val_loss, epoch_number)
+                    selected = (
+                        -self.selected_correct_documents,
+                        self.selected_val_loss,
+                        self.selected_epoch,
+                    )
+                    if self.selected_epoch == 0 or candidate < selected:
+                        self.selected_correct_documents = correct_documents
+                        self.selected_val_accuracy = val_accuracy
+                        self.selected_val_loss = val_loss
+                        self.selected_epoch = epoch_number
                         self.model.save_weights(checkpoint_dir / "text_classifier_best_accuracy.h5")
                         (checkpoint_dir / "best_accuracy_epoch.json").write_text(
                             json.dumps(
                                 {
-                                    "best_epoch": self.best_accuracy_epoch,
-                                    "best_val_accuracy": self.best_val_accuracy,
+                                    "best_epoch": self.selected_epoch,
+                                    "best_val_accuracy": self.selected_val_accuracy,
+                                    "best_val_loss": self.selected_val_loss,
+                                    "correct_documents": self.selected_correct_documents,
+                                    "validation_documents": validation_documents,
+                                    "selection_rule": [
+                                        "highest validation correct-document count",
+                                        "lower validation loss",
+                                        "earlier epoch",
+                                    ],
                                 },
                                 indent=2,
                             )
@@ -217,7 +255,10 @@ def train_transformer(
     import tf_keras
 
     history_csv = checkpoint_dir / "training_history.csv"
-    checkpoint_callback = EpochCheckpoint.build(checkpoint_dir)
+    checkpoint_callback = EpochCheckpoint.build(
+        checkpoint_dir,
+        validation_documents=len(validation),
+    )
     callbacks = [
         checkpoint_callback,
         tf_keras.callbacks.CSVLogger(history_csv),
@@ -230,8 +271,8 @@ def train_transformer(
         callbacks=callbacks,
     )
 
-    val_losses = history.history.get("val_loss", [])
-    val_accuracies = history.history.get("val_accuracy", [])
+    val_losses = [float(value) for value in history.history.get("val_loss", [])]
+    val_accuracies = [float(value) for value in history.history.get("val_accuracy", [])]
     if not val_losses:
         raise RuntimeError("Validation loss was not recorded")
     if not val_accuracies:
@@ -240,14 +281,16 @@ def train_transformer(
     best_epoch = int(np.argmin(val_losses)) + 1
     if checkpoint_callback.best_epoch != best_epoch:
         raise RuntimeError("Best-loss checkpoint disagrees with recorded validation history")
-    best_accuracy_epoch = int(np.argmax(val_accuracies)) + 1
-    if checkpoint_callback.best_accuracy_epoch != best_accuracy_epoch:
-        raise RuntimeError("Best-accuracy checkpoint disagrees with recorded validation history")
+
+    selected_index = _selected_epoch_index(val_accuracies, val_losses, len(validation))
+    selected_epoch = selected_index + 1
+    if checkpoint_callback.selected_epoch != selected_epoch:
+        raise RuntimeError("Registered checkpoint selection disagrees with recorded validation history")
 
     if not (checkpoint_dir / "text_classifier_best.h5").exists():
         raise RuntimeError("Best-loss checkpoint was not written")
     if not (checkpoint_dir / "text_classifier_best_accuracy.h5").exists():
-        raise RuntimeError("Best-accuracy checkpoint was not written")
+        raise RuntimeError("Registered selected checkpoint was not written")
 
     save_runtime_config(checkpoint_dir / "config.json", config, labels)
     return history
