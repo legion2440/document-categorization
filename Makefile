@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: setup models data train evaluate optimize validate test dashboard all
+.PHONY: setup models data preflight train calibrate freeze verify evaluate optimize validate test dashboard all
 
 setup:
 	$(PYTHON) -m pip install -r requirements.txt
@@ -11,8 +11,20 @@ models:
 data:
 	$(PYTHON) scripts/prepare_data.py
 
+preflight:
+	$(PYTHON) scripts/preflight_revision2.py
+
 train:
-	$(PYTHON) scripts/train.py
+	$(PYTHON) scripts/train_revision2.py
+
+calibrate:
+	$(PYTHON) scripts/calibrate_validation.py
+
+freeze:
+	$(PYTHON) scripts/freeze_production.py
+
+verify:
+	$(PYTHON) scripts/verify_production_validation.py
 
 evaluate:
 	$(PYTHON) scripts/evaluate.py
