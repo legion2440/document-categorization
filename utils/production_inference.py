@@ -10,6 +10,7 @@ from utils.inference import DocumentCategorizationPipeline
 
 PRODUCTION_RUNTIME_FILE = "production_runtime.json"
 CALIBRATION_FILE = "calibration.json"
+SUPPORTED_RUNTIME_SCHEMAS = {1, 2}
 
 
 def load_production_runtime(checkpoint_dir: str | Path) -> dict[str, object]:
@@ -20,8 +21,14 @@ def load_production_runtime(checkpoint_dir: str | Path) -> dict[str, object]:
             f"Frozen production runtime is missing: {path}. Run `python scripts/freeze_production.py`."
         )
     runtime = json.loads(path.read_text(encoding="utf-8"))
-    if int(runtime.get("schema_version", 0)) != 1:
-        raise ValueError("Unsupported production runtime schema")
+    schema_version = int(runtime.get("schema_version", 0))
+    if schema_version not in SUPPORTED_RUNTIME_SCHEMAS:
+        raise ValueError(
+            f"Unsupported production runtime schema {schema_version}; "
+            f"supported={sorted(SUPPORTED_RUNTIME_SCHEMAS)}"
+        )
+    if schema_version == 2 and int(runtime.get("revision", 0)) != 2:
+        raise ValueError("Production runtime schema 2 must be marked as Revision 2")
     if runtime.get("precision_policy") != "float32":
         raise ValueError("Production runtime must use the validated float32 policy")
     if runtime.get("jit_compile") is not True:
