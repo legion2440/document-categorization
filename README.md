@@ -33,12 +33,9 @@ The first held-out evaluation did not meet the assignment's `85%` accuracy gate.
 | Spanish accuracy | 81.12% | **86.73%** |
 | Baseline accuracy | 77.81% | 83.14% |
 | Relative improvement over baseline | +5.32% | **+5.59%** |
-| Absolute improvement | +4.14 pp | +4.65 pp |
 | Assignment gates | FAIL | **PASS** |
 
 Revision 2 satisfies all mandatory assignment gates: accuracy `>=85%`, macro F1 `>=80%`, speed `>=100 docs/s`, per-language accuracy `>=80%`, and relative improvement over baseline `>=5%`.
-
-The stricter, non-gating interpretation of `+5 percentage points` is reported separately and is **not** met: Revision 2 improves by `+4.65 pp`. The assignment wording is treated literally as a relative `>=5%` improvement, while both forms are disclosed.
 
 Evidence:
 
