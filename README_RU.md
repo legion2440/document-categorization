@@ -36,7 +36,7 @@
 | Relative improvement над baseline | +5.32% | **+5.59%** |
 | Mean calibrated confidence | 88.02% | **88.14%** |
 
-Revision 2 показывает **87.79% test accuracy** при **130.84 документах/сек** для полного пути classification + language detection + spaCy tagging.
+Revision 2 показывает **87.79% test accuracy** при **130.84 документах/сек** для полного пути classification + language detection + spaCy tagging. Held-out accuracy определения языка составляет **98.30%**; frozen test artifact не сохраняет разбивку ошибок по направлениям, поэтому из этого агрегированного значения не делается вывод о направлении EN↔ES ошибок.
 
 Обе ревизии сохранены как история разработки, а не как строгий A/B-тест: в Revision 2 изменились представление документа, набор категорий, построение validation и preprocessing. Контролируемое сравнение внутри каждой ревизии — transformer против baseline, обученного на тех же данных.
 
@@ -255,6 +255,8 @@ microsoft/mdeberta-v3-base
 
 Checkpoint выбирается детерминированно: максимум правильных validation documents, затем меньший validation loss, затем более ранняя epoch. Revision 2 выбрал epoch 5 с `1886/2186` правильных validation documents (`86.28%`).
 
+Validation loss менялся немонотонно (`1.3185 → 1.3683 → 1.2940 → 1.3449 → 1.3166`), тогда как validation accuracy монотонно рос (`78.96% → 81.34% → 83.53% → 85.27% → 86.28%`). Поэтому по зафиксированному правилу выбран epoch 5, хотя минимальный validation loss был на epoch 3; `val_loss` остаётся контролируемой диагностикой и tie-breaker, а не основным критерием выбора.
+
 ### Calibration confidence
 
 Scalar temperature scaling обучается только на validation. Revision 2 использует `T = 2.9108`, при этом class argmax не меняется.
@@ -266,6 +268,8 @@ Scalar temperature scaling обучается только на validation. Revi
 | ECE | 0.1292 | 0.0454 |
 | Brier score | 0.2648 | 0.2304 |
 
+На held-out test mean calibrated confidence составляет **88.14%** при наблюдаемой accuracy **87.79%**, то есть разница равна `0.35` процентного пункта. Это агрегированная проверка согласованности, а не утверждение о held-out ECE/NLL; ECE и NLL в таблице измерены только на validation.
+
 ## 🏷️ Контекстное тегирование
 
 `models/tagger.py` реализует language-aware spaCy tagging:
@@ -274,8 +278,8 @@ Scalar temperature scaling обучается только на validation. Revi
 2. выбирает соответствующую spaCy model;
 3. извлекает named entities;
 4. приоритизирует entities как context tags;
-5. добавляет частотные meaningful lemmas;
-6. удаляет дубли;
+5. добавляет частотные значимые token text;
+6. удаляет дубли тегов;
 7. обрабатывает batch через `nlp.pipe`.
 
 | Язык | spaCy model |
@@ -284,6 +288,8 @@ Scalar temperature scaling обучается только на validation. Revi
 | Spanish | `es_core_news_sm` |
 
 Runtime tagger использует окно `75` слов, classifier — `150` слов.
+
+Frozen tagger Revision 2 намеренно не меняется после финальной оценки. Малые spaCy-модели могут выдавать шумные entity spans; текущий путь не фильтрует entity labels перед продвижением span в tags, не дедуплицирует сам возвращаемый список entities и использует частотное ранжирование lexical tokens. Эти улучшения вынесены в post-release [Issue #1](https://github.com/legion2440/document-categorization/issues/1), а не применяются задним числом к frozen evidence.
 
 ## ⚡ Runtime
 
@@ -316,6 +322,8 @@ Frozen inference path использует:
 - McNemar ES: `480` против `260`, `p = 5.05e-16`;
 - pair-cluster bootstrap absolute improvement 95% CI: `+3.76`…`+5.62` процентного пункта;
 - pair-cluster bootstrap relative improvement 95% CI: `+4.50%`…`+6.79%`.
+
+Точечная оценка relative improvement Revision 2 составляет **+5.59%**, при этом 95% bootstrap interval пересекает `5%`; поэтому данные поддерживают саму точечную оценку, но не утверждение, что истинное улучшение устойчиво выше ровно `5%`. Результаты McNemar независимо дают сильные основания считать transformer лучше same-split baseline для обоих языков.
 
 Reproducibility evidence:
 
@@ -365,6 +373,7 @@ document-categorization/
 - Raw/processed datasets и большие model weights воспроизводимы и намеренно исключены из Git.
 - Revision 1 и Revision 2 используют разные data policies, поэтому изменение метрик между ними — история разработки, а не строгий same-sample experiment.
 - `scripts/evaluate.py` после сохранённой финальной оценки работает только как evidence viewer.
+- Post-release backlog: [Issue #1 — качество tags/entities](https://github.com/legion2440/document-categorization/issues/1) и [Issue #2 — устойчивость и диагностика language detection](https://github.com/legion2440/document-categorization/issues/2). Это неблокирующие улучшения качества/наблюдаемости, которые не применяются задним числом к frozen evidence Revision 2.
 
 ## 🧑‍💻 Автор
 
