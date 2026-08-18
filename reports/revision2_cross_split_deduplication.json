@@ -1,0 +1,7 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "policy": "exact normalized text; priority test > validation > train; drop whole EN/ES pair",
+  "dropped_pairs": {"test": 0, "validation": 2, "train": 13},
+  "policy_changed_from_revision1": false
+}
