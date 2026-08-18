@@ -22,6 +22,10 @@ models/checkpoints/*.h5
 models/checkpoints/*.keras
 models/checkpoints/*.tflite
 models/checkpoints/*.joblib
+models/checkpoints_revision2/*.h5
+models/checkpoints_revision2/*.keras
+models/checkpoints_revision2/*.tflite
+models/checkpoints_revision2/*.joblib
 
 # Local caches
 .cache/
