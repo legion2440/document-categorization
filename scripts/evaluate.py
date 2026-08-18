@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 # Backward-compatible statistical helpers used by the test suite and by external
 # callers. Importing them does not execute the guarded Revision 2 evaluator.
 from scripts.evaluate_revision2 import _cluster_bootstrap_improvement, _mcnemar_exact
 
-ROOT = Path(__file__).resolve().parents[1]
 METRICS = ROOT / "reports/performance_metrics.json"
 REVISION1 = ROOT / "reports/revision1_performance_metrics.json"
 REVISION2 = ROOT / "reports/revision2/performance_metrics.json"
