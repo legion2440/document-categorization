@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "module_id": "classifier",
-  "purpose": "TF/Keras baseline and multilingual BERT-family transfer-learning classifier with explicit token budgets and regularized fine-tuning",
+  "purpose": "TensorFlow/Keras multilingual mDeBERTa classifier, classical baseline, checkpoint selection and regularized transfer-learning training",
   "paths": [
     {"path": "models/text_classifier.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "models/baseline.py", "lifecycle": "implemented", "provenance": "authored"},
@@ -20,5 +20,8 @@
     "tests/test_calibration.py",
     "tests/test_transfer_learning_selection.py"
   ],
-  "runtime_evidence": ["reports/revision2_preflight.json"]
+  "runtime_evidence": [
+    "reports/revision2_preflight.json",
+    "reports/revision2/performance_metrics.json"
+  ]
 }
