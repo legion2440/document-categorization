@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "status": "completed",
+  "started_at_utc": "2026-08-18T07:07:19.551108+00:00",
+  "git_commit": "9d2bb93ee6c5792152e184de6e26bf35f2efa936",
+  "final_test_attempt_number": 2,
+  "revision1_test_already_opened": true,
+  "third_final_test_forbidden": true,
+  "consumption_policy": "This marker is created before reading test.csv. Once created, Revision 2 may not be re-evaluated on test even if the process later fails.",
+  "test_split_read": true,
+  "frozen_selected_epoch": 5,
+  "frozen_validation_correct_documents": 1886,
+  "frozen_validation_documents": 2186,
+  "frozen_validation_accuracy": 0.8627630375114365,
+  "test_documents": 9492,
+  "test_source_documents": 4746,
+  "completed_at_utc": "2026-08-18T07:10:20.278707+00:00",
+  "revision2_metrics_file": "reports/revision2/performance_metrics.json",
+  "classification_accuracy": 0.877897176569743,
+  "all_assignment_gates_pass": true
+}
