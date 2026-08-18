@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "module_id": "evaluation",
-  "purpose": "Metrics, throughput benchmark, calibration, production freeze, pre-test verification, report generation and audit validation",
+  "purpose": "Metrics, throughput benchmark, calibration, production freeze, guarded final evaluation, preserved results and audit validation",
   "paths": [
     {"path": "scripts/evaluate.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/evaluate_revision2.py", "lifecycle": "implemented", "provenance": "authored"},
@@ -25,6 +25,9 @@
   ],
   "runtime_evidence": [
     "reports/revision1_performance_metrics.json",
+    "reports/revision2/performance_metrics.json",
+    "reports/revision2/final_test_consumed.json",
+    "reports/performance_metrics.json",
     "models/checkpoints/production_validation_verification.json"
   ]
 }
