@@ -4,6 +4,7 @@
   "purpose": "Metrics, throughput benchmark, calibration, production freeze, pre-test verification, report generation and audit validation",
   "paths": [
     {"path": "scripts/evaluate.py", "lifecycle": "implemented", "provenance": "authored"},
+    {"path": "scripts/evaluate_revision2.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/evaluate_validation.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/benchmark_validation_runtime.py", "lifecycle": "implemented", "provenance": "authored"},
     {"path": "scripts/calibrate_validation.py", "lifecycle": "implemented", "provenance": "authored"},
@@ -17,6 +18,13 @@
   ],
   "contracts": [],
   "validators": ["scripts/validate_agent_contracts.py"],
-  "tests": ["tests/test_project_validation.py", "tests/test_production_runtime.py"],
-  "runtime_evidence": ["reports/revision1_performance_metrics.json"]
+  "tests": [
+    "tests/test_project_validation.py",
+    "tests/test_production_runtime.py",
+    "tests/test_revision2_final_evaluation.py"
+  ],
+  "runtime_evidence": [
+    "reports/revision1_performance_metrics.json",
+    "models/checkpoints/production_validation_verification.json"
+  ]
 }
