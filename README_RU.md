@@ -1,52 +1,68 @@
 # Document Categorization
 
-Мультиязычная категоризация документов и контекстное тегирование для задания 01-edu. Production-путь использует TensorFlow/Keras + `microsoft/mdeberta-v3-base`, baseline TF-IDF + Logistic Regression, spaCy NER/tagging, EN→ES augmentation через MarianMT, calibration confidence, XLA inference и Streamlit dashboard.
+Мультиязычный pipeline для классификации и контекстного анализа документов на английском и испанском языках. Система объединяет TensorFlow/Keras + `microsoft/mdeberta-v3-base`, baseline TF-IDF + Logistic Regression, spaCy NER и контекстные теги, EN→ES augmentation через MarianMT, calibration confidence, XLA-ускоренный inference и интерактивный Streamlit dashboard.
 
 · [English version](README.md)
 
 ## 📋 Содержание
 
-- [📊 Финальные результаты](#-финальные-результаты)
+- [📊 Производительность](#-производительность)
+- [🧩 Возможности](#-возможности)
 - [🚀 Быстрый старт](#-быстрый-старт)
+- [🏗️ Архитектура](#️-архитектура)
 - [📚 Датасет](#-датасет)
 - [🧹 Preprocessing](#-preprocessing)
 - [🧠 Классификатор](#-классификатор)
 - [🏷️ Контекстное тегирование](#️-контекстное-тегирование)
 - [⚡ Runtime](#-runtime)
-- [🧪 Протокол оценки](#-протокол-оценки)
+- [🧪 Оценка и воспроизводимость](#-оценка-и-воспроизводимость)
 - [🖥️ Dashboard](#️-dashboard)
-- [✅ Проверка аудита](#-проверка-аудита)
 - [📁 Структура проекта](#-структура-проекта)
 - [⚠️ Примечания](#️-примечания)
 - [🧑‍💻 Автор](#-автор)
 
-## 📊 Финальные результаты
+## 📊 Производительность
 
-Первый held-out test не прошёл обязательный порог задания `85%` accuracy. Этот результат сохранён как Revision 1. После него был заранее зафиксирован Revision 2 — post-first-test protocol revision с новым представлением документа и новым validation protocol. Затем был выполнен один второй и последний held-out test. Оба результата опубликованы.
+Текущая модель: **Revision 2 / mDeBERTa-v3-base**.
 
 | Метрика | Revision 1 | Revision 2 |
 | --- | ---: | ---: |
 | Test accuracy | 81.95% | **87.79%** |
 | Macro F1 | 81.92% | **87.80%** |
-| Throughput | 134.08 docs/s | **130.84 docs/s** |
+| End-to-end throughput | 134.08 docs/s | **130.84 docs/s** |
 | English accuracy | 82.79% | **88.85%** |
 | Spanish accuracy | 81.12% | **86.73%** |
-| Baseline accuracy | 77.81% | 83.14% |
+| Baseline TF-IDF + Logistic Regression | 77.81% | 83.14% |
 | Relative improvement над baseline | +5.32% | **+5.59%** |
-| Пороги задания | FAIL | **PASS** |
+| Mean calibrated confidence | 88.02% | **88.14%** |
 
-Revision 2 проходит все обязательные gates задания: accuracy `>=85%`, macro F1 `>=80%`, speed `>=100 docs/s`, accuracy каждого языка `>=80%` и relative improvement над baseline `>=5%`.
+Revision 2 — текущий production candidate. Модель показывает **87.79% test accuracy** при **130.84 документах/сек** для полного пути classification + language detection + spaCy tagging.
 
-Evidence:
+Обе ревизии сохранены как история разработки, а не как строгий A/B-тест: в Revision 2 изменились представление документа, набор категорий, построение validation и preprocessing policy. Контролируемое сравнение внутри каждой ревизии — transformer против baseline, обученного на тех же данных.
+
+Фактические результаты хранятся в:
 
 ```text
 reports/revision1_performance_metrics.json
 reports/revision2/performance_metrics.json
-reports/revision2/final_test_consumed.json
 reports/performance_metrics.json
+reports/revision2/example_predictions.csv
 ```
 
-Второй test-run является последним. `reports/revision2/final_test_consumed.json` фиксирует запрет третьего final-test evaluation.
+## 🧩 Возможности
+
+Для английского или испанского документа pipeline умеет:
+
+- определять язык;
+- классифицировать документ в одну из 12 тематических категорий;
+- возвращать calibrated confidence;
+- извлекать именованные сущности;
+- генерировать контекстные теги;
+- обрабатывать один документ или batch;
+- показывать результаты в Streamlit dashboard;
+- измерять accuracy, F1, качество по языкам, calibration и throughput.
+
+Runtime разделяет GPU-нагрузку transformer classifier и CPU-нагрузку spaCy, а затем перекрывает эти стадии для увеличения throughput.
 
 ## 🚀 Быстрый старт
 
@@ -55,12 +71,12 @@ reports/performance_metrics.json
 - Python 3.11 или 3.12;
 - Linux / WSL2 рекомендуется для NVIDIA TensorFlow training;
 - NVIDIA GPU крайне желателен для fine-tuning mDeBERTa;
-- интернет при первой загрузке dataset/models.
+- интернет при первой загрузке dataset и моделей.
 
 ### Клонирование
 
 ```bash
-git clone https://01.tomorrow-school.ai/git/nyestaye/document-categorization
+git clone https://github.com/legion2440/document-categorization.git
 cd document-categorization
 ```
 
@@ -87,7 +103,7 @@ PY
 ):/usr/lib/wsl/lib:${LD_LIBRARY_PATH:-}
 ```
 
-### Загрузка зависимостей моделей
+### Загрузка моделей
 
 ```bash
 python scripts/download_models.py
@@ -95,17 +111,17 @@ python scripts/download_models.py
 
 Кэшируются:
 
-- `microsoft/mdeberta-v3-base` — production classifier base;
+- `microsoft/mdeberta-v3-base` — base model классификатора;
 - `Helsinki-NLP/opus-mt-en-es` — EN→ES augmentation;
-- `en_core_web_sm` и `es_core_news_sm` — spaCy tagging/NER.
+- `en_core_web_sm` и `es_core_news_sm` — spaCy tagging и NER.
 
-### Подготовка Revision 2 dataset
+### Подготовка данных
 
 ```bash
 python scripts/prepare_data.py
 ```
 
-Перевод возобновляемый: Revision 2 использует отдельный cache в `data/processed_data/translation_cache_revision2/`.
+Перевод возобновляемый через `data/processed_data/translation_cache_revision2/`.
 
 ### Preflight
 
@@ -113,7 +129,7 @@ python scripts/prepare_data.py
 python scripts/preflight_revision2.py
 ```
 
-Preflight физически читает только **train + validation** и проверяет dataset invariants, sanity перевода, token budget, language detection и baseline. `test.csv` не читается.
+Preflight проверяет train/validation invariants, качество перевода, tokenizer budget, language detection и classical baseline без использования held-out test metrics.
 
 ### Обучение
 
@@ -121,24 +137,7 @@ Preflight физически читает только **train + validation** и
 python scripts/train_revision2.py
 ```
 
-Зафиксированный production run:
-
-| Параметр | Значение |
-| --- | ---: |
-| Model | `microsoft/mdeberta-v3-base` |
-| Epochs | `5` |
-| Learning rate | `2e-5` |
-| Batch size | `2` |
-| Max model tokens | `512` |
-| Classification source window | `150` слов |
-| Optimizer | AdamW |
-| Weight decay | `0.01` |
-| Warmup | `10%` |
-| Gradient clip | `1.0` |
-
-Checkpoint выбирается детерминированно: максимум правильных validation документов, затем меньший validation loss, затем более ранняя epoch. Revision 2 выбрал epoch 5: `1886/2186`, или `86.28%`.
-
-### Calibration, freeze, validation verification
+### Calibration и freeze
 
 ```bash
 python scripts/calibrate_validation.py
@@ -146,17 +145,13 @@ python scripts/freeze_production.py
 python scripts/verify_production_validation.py
 ```
 
-Temperature scaling обучается только на validation. Для Revision 2 получено `T=2.9108`; argmax не меняется, а validation ECE снижается с `0.1292` до `0.0454`.
-
-Frozen validation verification без чтения test воспроизвёл выбранные `1886/2186` правильных документов точно.
-
-### Показать финальный evidence
+### Просмотр сохранённых финальных метрик
 
 ```bash
 python scripts/evaluate.py
 ```
 
-Теперь эта команда **только выводит уже сохранённые final metrics**. Held-out test повторно не читается, потому что единственный разрешённый Revision 2 final evaluation уже израсходован.
+После финальной held-out оценки эта команда работает только как evidence viewer и не запускает test повторно.
 
 ### Проверки
 
@@ -166,13 +161,50 @@ python scripts/validate_agent_contracts.py
 python scripts/validate_project.py
 ```
 
+### Dashboard
+
+```bash
+streamlit run app/real_time_dashboard.py
+```
+
+## 🏗️ Архитектура
+
+```text
+20 Newsgroups
+      │
+      ├── header-aware cleanup ── Subject + body
+      │
+      ├── structural / token-density cleanup
+      │
+      ├── deterministic EN source documents
+      │          │
+      │          └── MarianMT EN→ES augmentation
+      │
+      └── paired EN/ES train · validation · test
+                 │
+                 ├── mDeBERTa-v3-base classifier ──┐
+                 │                                  ├── calibrated result
+                 └── spaCy NER + context tags ─────┘
+                                                    │
+                                      batch API / Streamlit dashboard
+```
+
+Основные runtime-модули:
+
+```text
+models/text_classifier.py
+models/tagger.py
+utils/inference.py
+utils/production_inference.py
+```
+
 ## 📚 Датасет
 
-Используется **20 Newsgroups**. Каждый retained English документ зеркалируется в Spanish через MarianMT.
+В качестве labeled source используется **20 Newsgroups**. Каждый retained English документ зеркалируется в Spanish через MarianMT.
 
-После Revision 2 cleaning и cross-split deduplication:
+Текущий processed corpus:
 
-- `11,861` независимая source pair;
+- `11,861` source pairs;
 - `23,722` строк EN/ES;
 - `12` категорий;
 - `2` языка;
@@ -180,7 +212,7 @@ python scripts/validate_project.py
 - validation: `1,093` source pairs;
 - test: `4,746` source pairs.
 
-Категории Revision 2 выбираются механически по cleaned source counts, без model performance:
+Категории:
 
 ```text
 rec.sport.hockey
@@ -197,15 +229,13 @@ sci.electronics
 comp.sys.ibm.pc.hardware
 ```
 
-Правило сортирует категории по cleaned official-train count с lexicographic tie-break и берёт минимальный prefix, пока cleaned train+test source count не достигнет `11,000`.
-
-English source и его Spanish translation имеют общий `pair_id` и всегда остаются в одном split.
+Выбор категорий детерминирован и основан на cleaned source counts, а не на model scores. English source и его Spanish translation имеют общий `pair_id` и всегда остаются в одном split.
 
 ## 🧹 Preprocessing
 
-Revision 2 сохраняет `Subject` как содержательный заголовок документа, но отбрасывает routing/sender metadata. `sklearn` удаляет footers и quotes, после чего проект самостоятельно разбирает оставшийся RFC-style header block.
+Revision 2 сохраняет `Subject` как содержательный заголовок документа, но отбрасывает routing и sender metadata. `sklearn` удаляет footers и quotes, после чего проект самостоятельно разбирает оставшийся RFC-style header block.
 
-Представление документа:
+Представление для classifier:
 
 ```text
 Subject без повторяющихся ведущих Re:
@@ -213,13 +243,20 @@ Subject без повторяющихся ведущих Re:
 Body
 ```
 
-Остальные headers удаляются. `Re:` удаляется, потому что train-only diagnostic показал сильную связь с категорией: `Cramér's V = 0.379` при заранее установленном пороге `0.10`.
+Далее выполняются:
 
-Далее выполняются structural cleanup, token-density cleanup, Unicode normalization и детерминированное окно `150` слов. Spanish переводится уже из очищенного English representation и проходит нормализацию после перевода.
+- Unicode normalization;
+- удаление structural noise;
+- token-density cleanup;
+- normalization whitespace;
+- детерминированное classification window `150` слов;
+- post-translation normalization для Spanish.
 
-Revision 2 validation использует deterministic thread-grouped stratified fallback. Изначально запланированный temporal split оказался технически невозможен: parseable `Date:` coverage в official train равен `0/11,314`. Этот stop-condition сработал до retraining и был зафиксирован отдельным Amendment 01. Целые normalized-Subject thread groups никогда не разделяются между train и validation.
+Повторяющиеся ведущие `Re:` удаляются, потому что train-only diagnostics показали сильную связь их наличия с категорией (`Cramér's V = 0.379`).
 
-Протокол:
+Validation строится детерминированно и thread-grouped: документы с одинаковым normalized subject внутри категории не разделяются между train и validation.
+
+Изначальный temporal-validation design оказался технически недоступен из-за отсутствия пригодного `Date:` coverage в official corpus. Решение о fallback и его обоснование сохранены в:
 
 ```text
 config/revision2_protocol.json
@@ -246,44 +283,47 @@ Production model:
 microsoft/mdeberta-v3-base
 ```
 
-Основные файлы:
+Зафиксированная training configuration:
 
-```text
-models/text_classifier.py
-utils/transfer_learning.py
-scripts/train_revision2.py
-```
+| Параметр | Значение |
+| --- | ---: |
+| Epochs | `5` |
+| Learning rate | `2e-5` |
+| Batch size | `2` |
+| Max model tokens | `512` |
+| Source text window | `150` слов |
+| Optimizer | AdamW |
+| Weight decay | `0.01` |
+| Warmup | `10%` |
+| Gradient clip | `1.0` |
+| Random seed | `42` |
 
-Training сохраняет checkpoint каждой эпохи и runtime artifacts:
+Checkpoint выбирается детерминированно: максимум правильных validation documents, затем меньший validation loss, затем более ранняя epoch. Revision 2 выбрал epoch 5 с `1886/2186` правильных validation documents (`86.28%`).
 
-```text
-models/checkpoints_revision2/
-├── epoch_01.h5 ... epoch_05.h5
-├── text_classifier_best.h5
-├── text_classifier_best_accuracy.h5
-├── config.json
-├── training_history.csv
-├── best_accuracy_epoch.json
-├── baseline_metrics.json
-├── optimizer_plan.json
-└── token_budget.json
-```
+Training artifacts включают checkpoints всех эпох, runtime config, history, baseline metrics, optimizer plan и token-budget diagnostics. Большие веса намеренно исключены из Git.
 
-Большие веса намеренно исключены из Git.
+### Calibration confidence
 
-### Calibration
+Scalar temperature scaling обучается только на validation. Revision 2 использует `T = 2.9108`.
 
-Confidence калибруется scalar temperature scaling только по validation. Calibration меняет confidence, но не class argmax.
+Calibration не изменила class argmax и улучшила validation calibration:
+
+| Метрика | До | После |
+| --- | ---: | ---: |
+| Mean confidence | 98.97% | 87.83% |
+| NLL | 1.3163 | 0.5928 |
+| ECE | 0.1292 | 0.0454 |
+| Brier score | 0.2648 | 0.2304 |
 
 ## 🏷️ Контекстное тегирование
 
-`models/tagger.py`:
+`models/tagger.py` реализует language-aware spaCy tagging:
 
-1. определяет English/Spanish;
-2. выбирает соответствующий spaCy pipeline;
+1. определяет English или Spanish;
+2. выбирает соответствующую spaCy model;
 3. извлекает named entities;
-4. использует entities как приоритетные context tags;
-5. добавляет meaningful lemmas;
+4. приоритизирует entities как context tags;
+5. добавляет частотные meaningful lemmas;
 6. удаляет дубли;
 7. обрабатывает batch через `nlp.pipe`.
 
@@ -296,87 +336,82 @@ Production tagger использует окно `75` слов, classifier — `1
 
 ## ⚡ Runtime
 
-Frozen production runtime:
+Frozen inference path использует:
 
-- float32;
+- float32 TensorFlow inference;
 - XLA compilation;
-- fixed sequence buckets `64/128/192/256/384/512`;
-- attention-balanced batch sizes `32/32/16/16/4/4`;
-- parallel CPU spaCy tagging + GPU classification;
+- fixed token buckets `64 / 128 / 192 / 256 / 384 / 512`;
+- attention-balanced batch sizes `32 / 32 / 16 / 16 / 4 / 4`;
+- parallel CPU spaCy tagging и GPU transformer classification;
 - validation-fitted temperature scaling.
 
-Revision 2 final end-to-end throughput: **130.84 docs/s**, включая classification и tagging.
+Измеренный Revision 2 end-to-end throughput: **130.84 docs/s**.
 
-Основные API:
+Перед финальной held-out оценкой frozen validation verification точно воспроизвёл выбранный checkpoint (`1886/2186` правильных) со скоростью **112.36 docs/s**.
 
-```text
-utils/inference.py
-utils/production_inference.py
-```
+## 🧪 Оценка и воспроизводимость
 
-## 🧪 Протокол оценки
+В репозитории сохранены две model-development ревизии.
 
-Revision 1 остаётся исходным первым held-out result и не прошёл только обязательный gate `85%` accuracy.
+**Revision 1** показал generalization gap на первой held-out evaluation: `81.95%` test accuracy при более сильных validation metrics. Вместо повторного подбора по test результат был сохранён, а новый data/model protocol зафиксирован до retraining.
 
-Revision 2 был явно зарегистрирован как **post-first-test protocol revision** до нового preprocessing/training. Второй final evaluation защищён irreversible marker, созданным до чтения `test.csv`. Marker теперь завершён, поэтому третий test-run запрещён независимо от результата.
+**Revision 2** добавил текущее title-aware представление, deterministic grouped validation, новый translation cache, новую validation-only calibration и новый mDeBERTa training run. Его held-out результат — `87.79%` accuracy / `87.80%` macro F1.
 
-Статистическая оценка Revision 2 также показывает преимущество transformer над baseline:
+Исходный Revision 1 опубликован рядом с Revision 2. Для Revision 2 также хранится immutable evaluation marker, чтобы held-out результат нельзя было незаметно пересчитать после просмотра результата.
+
+Статистическое сравнение с classical baseline на том же split:
 
 - McNemar EN: `434` transformer-only против `213` baseline-only, `p = 2.44e-18`;
 - McNemar ES: `480` против `260`, `p = 5.05e-16`;
-- pair-cluster bootstrap absolute improvement 95% CI: `+3.76`…`+5.62 п.п.`;
+- pair-cluster bootstrap absolute improvement 95% CI: `+3.76`…`+5.62` процентного пункта;
 - pair-cluster bootstrap relative improvement 95% CI: `+4.50%`…`+6.79%`.
 
-Point estimate проходит assignment gate `+5% relative`. Bootstrap interval публикуется как uncertainty и не подменяет правило задания по point estimate.
+Reproducibility evidence:
+
+```text
+reports/revision2_preflight.json
+models/checkpoints/production_validation_verification.json
+reports/revision1_performance_metrics.json
+reports/revision2/performance_metrics.json
+reports/revision2/final_test_consumed.json
+```
 
 ## 🖥️ Dashboard
+
+`app/real_time_dashboard.py` показывает:
+
+- predicted category;
+- calibrated confidence;
+- detected language;
+- context tags;
+- named entities;
+- final accuracy / F1 / throughput;
+- per-language metrics;
+- category и tag distributions;
+- example predictions.
+
+Запуск:
 
 ```bash
 streamlit run app/real_time_dashboard.py
 ```
 
-Dashboard показывает category, calibrated confidence, detected language, tags, named entities, final accuracy/F1/throughput, language breakdown и example predictions.
-
-## ✅ Проверка аудита
-
-| Пункт | Реализация / результат |
-| --- | --- |
-| Recommended dataset | 20 Newsgroups |
-| ≥10k documents | 23,722 EN/ES rows / 11,861 source pairs |
-| ≥5 categories | 12 |
-| ≥2 languages | English + Spanish |
-| TensorFlow/Keras | `models/text_classifier.py` |
-| Transfer learning | mDeBERTa-v3-base |
-| ≥5 epochs | 5 |
-| LR 2e-5…5e-5 | 2e-5 |
-| Validation loss | `training_history.csv` |
-| Checkpoints | `utils/transfer_learning.py` |
-| Baseline | TF-IDF + Logistic Regression |
-| spaCy + NER | `models/tagger.py` |
-| Accuracy ≥85% | 87.79% |
-| Macro F1 ≥80% | 87.80% |
-| Speed ≥100 docs/s | 130.84 docs/s |
-| Per-language accuracy ≥80% | EN 88.85%, ES 86.73% |
-| Relative improvement ≥5% | +5.59% |
-| Quantization | `utils/model_optimization.py` |
-| Final evidence | `reports/` |
-
 ## 📁 Структура проекта
 
 ```text
 document-categorization/
-├── agent/
-├── app/
-├── config/
-├── data/
-├── docs/
-├── models/
-├── notebooks/
-├── reports/
+├── agent/                         # repository navigation metadata
+├── app/                           # Streamlit dashboard
+├── config/                        # reproducibility protocol
+├── data/                          # generated datasets / caches
+├── docs/                          # architecture and protocol notes
+├── models/                        # classifier, baseline, tagger, checkpoints
+├── notebooks/                     # EDA and training notebook
+├── reports/                       # measured runtime/evaluation evidence
 │   └── revision2/
-├── scripts/
+├── scripts/                       # data, train, calibration, freeze, evaluation
 ├── tests/
-├── utils/
+├── utils/                         # preprocessing, inference, translation
 ├── AGENTS.md
 ├── Makefile
 ├── README.md
@@ -387,11 +422,10 @@ document-categorization/
 
 ## ⚠️ Примечания
 
-- Spanish data — machine-translated augmentation, а не независимо написанный Spanish corpus.
-- Raw/processed dataset и большие model weights воспроизводимы и не хранятся в Git.
-- Revision 1 и Revision 2 должны оставаться видимыми одновременно; Revision 2 нельзя представлять как untouched first test.
-- Final held-out test уже consumed. Нельзя удалять marker ради повторного запуска.
-- `scripts/evaluate.py` после финального evaluation намеренно работает только как evidence viewer.
+- Spanish документы — machine-translated augmentation, а не независимо написанный Spanish corpus.
+- Raw/processed datasets и большие model weights воспроизводимы и намеренно исключены из Git.
+- Revision 1 и Revision 2 используют разные data policies, поэтому изменение метрик между ними следует читать как историю разработки, а не как строгий same-sample experiment.
+- `scripts/evaluate.py` после сохранённой финальной оценки работает только как evidence viewer.
 
 ## 🧑‍💻 Автор
 
