@@ -375,6 +375,6 @@ document-categorization/
 - `scripts/evaluate.py` is evidence-only after the preserved final evaluation.
 - Post-release backlog: [Issue #1 — tag/entity quality](https://github.com/legion2440/document-categorization/issues/1) and [Issue #2 — language-detection robustness and diagnostics](https://github.com/legion2440/document-categorization/issues/2). These are non-blocking quality/observability improvements and are not retroactively applied to frozen Revision 2 evidence.
 
-## 🧑‍💻 Author
-
+## 🧑‍💻 Authors
 - Nazar Yestayev (@nyestaye)
+- Mukhambetali Zhumaly (@mzhumaly)

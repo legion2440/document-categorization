@@ -375,6 +375,6 @@ document-categorization/
 - `scripts/evaluate.py` после сохранённой финальной оценки работает только как evidence viewer.
 - Post-release backlog: [Issue #1 — качество tags/entities](https://github.com/legion2440/document-categorization/issues/1) и [Issue #2 — устойчивость и диагностика language detection](https://github.com/legion2440/document-categorization/issues/2). Это неблокирующие улучшения качества/наблюдаемости, которые не применяются задним числом к frozen evidence Revision 2.
 
-## 🧑‍💻 Автор
-
+## 🧑‍💻 Авторы
 - Nazar Yestayev (@nyestaye)
+- Mukhambetali Zhumaly (@mzhumaly)
