@@ -17,15 +17,31 @@ data/raw_documents/*
 data/processed_data/*
 !data/processed_data/.gitkeep
 
-# Large trained/optimized model artifacts
-models/checkpoints/*.h5
-models/checkpoints/*.keras
-models/checkpoints/*.tflite
-models/checkpoints/*.joblib
-models/checkpoints_revision2/*.h5
-models/checkpoints_revision2/*.keras
-models/checkpoints_revision2/*.tflite
-models/checkpoints_revision2/*.joblib
+# Generated model/checkpoint artifacts
+models/checkpoints/*
+!models/checkpoints/.gitkeep
+!models/checkpoints/production_validation_verification.json
+models/checkpoints_revision2/
+models/checkpoints_bert/
+models/checkpoints_distilbert_adamw/
+models/checkpoints_mdeberta/
+models/checkpoints_mdeberta_b2/
+models/checkpoints_xlm_roberta/
+
+# Local experiment/run logs
+/calibration-*.txt
+/final-test.txt
+/preflight*.txt
+/prepare-*.txt
+/probe*.txt
+/production-validation.txt
+/revision2-*.txt
+/runtime-*.txt
+/smoke-*.txt
+/stress.txt
+/training*.txt
+/validation-*.txt
+/ptxas
 
 # Local caches
 .cache/
