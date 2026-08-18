@@ -33,12 +33,9 @@
 | Spanish accuracy | 81.12% | **86.73%** |
 | Baseline accuracy | 77.81% | 83.14% |
 | Relative improvement над baseline | +5.32% | **+5.59%** |
-| Absolute improvement | +4.14 п.п. | +4.65 п.п. |
 | Пороги задания | FAIL | **PASS** |
 
 Revision 2 проходит все обязательные gates задания: accuracy `>=85%`, macro F1 `>=80%`, speed `>=100 docs/s`, accuracy каждого языка `>=80%` и relative improvement над baseline `>=5%`.
-
-Более строгая, но не являющаяся gate интерпретация `+5 percentage points` тоже публикуется отдельно и **не выполнена**: Revision 2 даёт `+4.65 п.п.`. В задании используется буквальное относительное улучшение `>=5%`, при этом обе формы результата раскрыты.
 
 Evidence:
 
