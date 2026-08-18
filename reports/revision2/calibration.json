@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "split": "validation",
+  "test_split_touched": false,
+  "test_split_read": false,
+  "checkpoint_dir": "/mnt/d/TSchool/document-categorization/models/checkpoints_revision2",
+  "weights": "text_classifier_best_accuracy.h5",
+  "model_name": "microsoft/mdeberta-v3-base",
+  "documents": 2186,
+  "clipped_documents": 3,
+  "runtime": {
+    "precision_policy": "float32",
+    "jit_compile": true,
+    "classification_window_words": 150,
+    "window_size": 256,
+    "classifier_batch_sizes": {"64": 32, "128": 32, "192": 16, "256": 16, "384": 4, "512": 4},
+    "fixed_bucket_lengths": [64, 128, 192, 256, 384, 512],
+    "compiled_shapes": [[4, 384], [4, 512], [16, 192], [16, 256], [32, 64], [32, 128]]
+  },
+  "method": "temperature_scaling",
+  "selection_metric": "negative_log_likelihood",
+  "temperature": 2.910829652923409,
+  "ece_bins": 15,
+  "argmax_unchanged": true,
+  "before": {
+    "accuracy": 0.8627630375114365,
+    "mean_confidence": 0.9896984208196131,
+    "nll": 1.3163267022690806,
+    "ece": 0.1292056673877105,
+    "brier": 0.2647732336581643
+  },
+  "after": {
+    "accuracy": 0.8627630375114365,
+    "mean_confidence": 0.8782514133358552,
+    "nll": 0.592848607844198,
+    "ece": 0.04540631857790756,
+    "brier": 0.23044593742627298
+  }
+}
