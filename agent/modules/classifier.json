@@ -21,7 +21,10 @@
     "tests/test_transfer_learning_selection.py"
   ],
   "runtime_evidence": [
-    "reports/revision2_preflight.json",
+    "reports/revision2/preflight.json",
+    "reports/revision2/baseline_validation.json",
+    "reports/revision2/training_history.csv",
+    "reports/revision2/checkpoint_selection.json",
     "reports/revision2/performance_metrics.json"
   ]
 }
