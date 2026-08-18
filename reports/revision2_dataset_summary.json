@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "documents": 23722,
+  "source_documents": 11861,
+  "categories": 12,
+  "languages": ["en", "es"],
+  "per_language": {"es": 11861, "en": 11861}
+}
