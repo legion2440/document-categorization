@@ -36,7 +36,7 @@ Current release: **Revision 2 / mDeBERTa-v3-base**.
 | Relative improvement over baseline | +5.32% | **+5.59%** |
 | Mean calibrated confidence | 88.02% | **88.14%** |
 
-Revision 2 reaches **87.79% test accuracy** while sustaining **130.84 documents/sec** through the complete classification + language detection + spaCy tagging path.
+Revision 2 reaches **87.79% test accuracy** while sustaining **130.84 documents/sec** through the complete classification + language detection + spaCy tagging path. Held-out language-detection accuracy is **98.30%**; the frozen test artifact does not preserve an error-direction breakdown, so no EN↔ES direction is inferred from that aggregate number.
 
 The two revisions are preserved as development history, not as a controlled A/B test: Revision 2 changed document representation, category selection, validation construction, and preprocessing before retraining. The controlled comparison inside each revision is the transformer against the baseline trained on the same data.
 
@@ -255,6 +255,8 @@ Frozen training configuration:
 
 Checkpoint selection is deterministic: highest validation correct-document count, then lower validation loss, then earlier epoch. Revision 2 selected epoch 5 with `1886/2186` validation documents correct (`86.28%`).
 
+Validation loss was non-monotonic (`1.3185 → 1.3683 → 1.2940 → 1.3449 → 1.3166`) while validation accuracy rose monotonically (`78.96% → 81.34% → 83.53% → 85.27% → 86.28%`). Under the frozen selection rule, epoch 5 therefore wins despite epoch 3 having the lowest validation loss; `val_loss` remains a monitored diagnostic and tie-breaker rather than the primary selector.
+
 ### Confidence calibration
 
 Scalar temperature scaling is fitted on validation only. Revision 2 uses `T = 2.9108` and preserves class argmax.
@@ -266,6 +268,8 @@ Scalar temperature scaling is fitted on validation only. Revision 2 uses `T = 2.
 | ECE | 0.1292 | 0.0454 |
 | Brier score | 0.2648 | 0.2304 |
 
+On the held-out test, mean calibrated confidence is **88.14%** versus **87.79%** observed accuracy, a `0.35` percentage-point gap. This is an aggregate alignment check, not a held-out ECE/NLL claim; ECE and NLL above were measured on validation only.
+
 ## 🏷️ Context-aware tagging
 
 `models/tagger.py` provides language-aware spaCy tagging:
@@ -274,7 +278,7 @@ Scalar temperature scaling is fitted on validation only. Revision 2 uses `T = 2.
 2. route to the matching spaCy model;
 3. extract named entities;
 4. prioritize entities as context tags;
-5. add frequent meaningful lemmas;
+5. add frequent meaningful token text;
 6. deduplicate tags;
 7. process batches with `nlp.pipe`.
 
@@ -284,6 +288,8 @@ Scalar temperature scaling is fitted on validation only. Revision 2 uses `T = 2.
 | Spanish | `es_core_news_sm` |
 
 The runtime tagger uses a `75`-word window while classification uses `150` words.
+
+The frozen Revision 2 tagger intentionally remains unchanged after evaluation. Small spaCy models can produce noisy entity spans; the current path does not filter entity labels before promoting spans to tags, does not deduplicate the returned entity list itself, and uses frequency-based lexical token ranking. These are tracked as post-release quality work in [Issue #1](https://github.com/legion2440/document-categorization/issues/1) rather than being retroactively applied to frozen evidence.
 
 ## ⚡ Runtime
 
@@ -316,6 +322,8 @@ Statistical comparison against the same-split classical baseline:
 - McNemar ES: `480` transformer-only vs `260` baseline-only, `p = 5.05e-16`;
 - pair-cluster bootstrap absolute improvement 95% CI: `+3.76` to `+5.62` percentage points;
 - pair-cluster bootstrap relative improvement 95% CI: `+4.50%` to `+6.79%`.
+
+The Revision 2 relative-improvement point estimate is **+5.59%**, while its 95% bootstrap interval crosses `5%`; the data therefore support the point estimate but not a claim that the true improvement is robustly above exactly `5%`. The McNemar results independently provide strong evidence that the transformer itself outperforms the same-split baseline in both languages.
 
 Reproducibility evidence:
 
@@ -365,6 +373,7 @@ document-categorization/
 - Raw/processed datasets and large model weights are reproducible and intentionally excluded from Git.
 - Revision 1 and Revision 2 use different data policies, so cross-revision metric changes are development history rather than a strict same-sample experiment.
 - `scripts/evaluate.py` is evidence-only after the preserved final evaluation.
+- Post-release backlog: [Issue #1 — tag/entity quality](https://github.com/legion2440/document-categorization/issues/1) and [Issue #2 — language-detection robustness and diagnostics](https://github.com/legion2440/document-categorization/issues/2). These are non-blocking quality/observability improvements and are not retroactively applied to frozen Revision 2 evidence.
 
 ## 🧑‍💻 Author
 
