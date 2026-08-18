@@ -1,0 +1,114 @@
+{
+  "schema_version": 2,
+  "revision": 2,
+  "protocol_status": "post_first_test_protocol_revision",
+  "evaluation_split": "test",
+  "final_test_confirmed": true,
+  "final_test_attempt_number": 2,
+  "third_final_test_forbidden": true,
+  "revision1_result_file": "reports/revision1_performance_metrics.json",
+  "classification_accuracy": 0.877897176569743,
+  "f1_score_macro": 0.8780210310060127,
+  "processing_speed_docs_per_sec": 130.8442203729332,
+  "language_detection_accuracy": 0.9830383480825958,
+  "languages_supported": ["en", "es"],
+  "per_language_accuracy": {
+    "en": 0.8885377159713443,
+    "es": 0.8672566371681416
+  },
+  "per_language_f1_macro": {
+    "en": 0.8887003862092606,
+    "es": 0.8673474284946819
+  },
+  "mean_calibrated_confidence": 0.8813713406598422,
+  "baseline_accuracy": 0.8314369995785925,
+  "baseline_f1_macro": 0.8315927218001126,
+  "accuracy_improvement_over_baseline_absolute_points": 0.04646017699115046,
+  "accuracy_improvement_over_baseline_relative": 0.05587937151545863,
+  "meets_accuracy_85_percent": true,
+  "meets_macro_f1_80_percent": true,
+  "meets_speed_100_docs_per_sec": true,
+  "meets_per_language_accuracy_80_percent": true,
+  "meets_baseline_relative_plus_5_percent": true,
+  "meets_baseline_plus_5_percentage_points": false,
+  "all_assignment_gates_pass": true,
+  "test_documents": 9492,
+  "test_source_documents": 4746,
+  "significance": {
+    "mcnemar_exact_by_language": {
+      "en": {
+        "transformer_only_correct": 434,
+        "baseline_only_correct": 213,
+        "discordant_pairs": 647,
+        "exact_two_sided_p_value": 2.437586410392874e-18
+      },
+      "es": {
+        "transformer_only_correct": 480,
+        "baseline_only_correct": 260,
+        "discordant_pairs": 740,
+        "exact_two_sided_p_value": 5.046881987578647e-16
+      }
+    },
+    "cluster_bootstrap": {
+      "cluster": "pair_id",
+      "clusters": 4746,
+      "iterations": 2000,
+      "seed": 42,
+      "absolute_accuracy_points_95_ci": [0.03761061946902655, 0.0561525495153814],
+      "relative_accuracy_improvement_95_ci": [0.04499300778293973, 0.06789268403749683]
+    }
+  },
+  "runtime": {
+    "schema_version": 2,
+    "revision": 2,
+    "source_checkpoint_dir": "/mnt/d/TSchool/document-categorization/models/checkpoints_revision2",
+    "source_weights": "text_classifier_best_accuracy.h5",
+    "weights": "text_classifier_best.h5",
+    "selection_metric": "validation_correct_document_count_then_val_loss_then_earlier_epoch",
+    "selection_rule": [
+      "highest validation correct-document count",
+      "lower validation loss",
+      "earlier epoch"
+    ],
+    "selected_epoch": 5,
+    "selected_validation_accuracy": 0.8627630472183228,
+    "selected_validation_correct_documents": 1886,
+    "selected_validation_documents": 2186,
+    "selected_validation_loss": 1.3165761232376099,
+    "baseline_validation_accuracy": 0.8055809698078683,
+    "model_name": "microsoft/mdeberta-v3-base",
+    "precision_policy": "float32",
+    "jit_compile": true,
+    "parallel_stages": true,
+    "classification_window_words": 150,
+    "tagger_window_words": 75,
+    "classifier_batch_sizes": {
+      "64": 32,
+      "128": 32,
+      "192": 16,
+      "256": 16,
+      "384": 4,
+      "512": 4
+    },
+    "fixed_bucket_lengths": [64, 128, 192, 256, 384, 512],
+    "calibration_file": "calibration.json",
+    "temperature": 2.910829652923409,
+    "test_split_read": false,
+    "revision1_result_file": "reports/revision1_performance_metrics.json",
+    "revision1_already_evaluated_on_test": true,
+    "revision2_final_test_not_run_at_freeze": true,
+    "transfer_modes": {
+      "epoch_01.h5": "hardlink",
+      "epoch_02.h5": "hardlink",
+      "epoch_03.h5": "hardlink",
+      "epoch_04.h5": "hardlink",
+      "epoch_05.h5": "hardlink",
+      "text_classifier_best.h5": "hardlink"
+    }
+  },
+  "calibration": {
+    "method": "temperature_scaling",
+    "temperature": 2.910829652923409,
+    "fitted_split": "validation"
+  }
+}
