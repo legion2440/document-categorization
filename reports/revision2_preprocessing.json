@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "classification_window_words": 150,
+  "document_representation": "Subject without leading Re: markers, followed by body; other headers dropped",
+  "sklearn_remove": ["footers", "quotes"],
+  "official_train_cleaning": {
+    "input_source_documents": 11314,
+    "output_source_documents": 11314,
+    "removed_structural_runs": 3577,
+    "removed_structural_lines": 270,
+    "removed_token_dense_lines": 3898,
+    "dropped_empty_documents": 0
+  },
+  "official_test_cleaning": {
+    "input_source_documents": 7532,
+    "output_source_documents": 7532,
+    "removed_structural_runs": 1843,
+    "removed_structural_lines": 169,
+    "removed_token_dense_lines": 2403,
+    "dropped_empty_documents": 0
+  },
+  "test_model_metrics_used": false
+}
