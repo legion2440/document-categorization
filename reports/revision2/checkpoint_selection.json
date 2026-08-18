@@ -1,0 +1,12 @@
+{
+  "best_epoch": 5,
+  "best_val_accuracy": 0.8627630472183228,
+  "best_val_loss": 1.3165761232376099,
+  "correct_documents": 1886,
+  "validation_documents": 2186,
+  "selection_rule": [
+    "highest validation correct-document count",
+    "lower validation loss",
+    "earlier epoch"
+  ]
+}
