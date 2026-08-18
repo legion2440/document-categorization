@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "scope": "train_and_validation_only",
+  "test_split_read": false,
+  "model_selection_metrics_from_test": false,
+  "design_splits": {
+    "train_documents": 12044,
+    "validation_documents": 2186,
+    "train_source_pairs": 6022,
+    "validation_source_pairs": 1093,
+    "categories": 12,
+    "languages": ["en", "es"],
+    "train_validation_exact_text_overlap": 0
+  },
+  "translation": {
+    "eligible_pairs": 6809,
+    "word_ratio_p01": 0.6472410256410256,
+    "word_ratio_p50": 1.0,
+    "word_ratio_p95": 1.1555555555555554,
+    "word_ratio_p99": 1.2666666666666666,
+    "word_ratio_outliers_below_0_5_or_above_2": 23
+  },
+  "token_budget": {
+    "model_name": "microsoft/mdeberta-v3-base",
+    "rows": [
+      {"split": "train", "language": "en", "documents": 6022, "p50": 138.0, "p95": 255.0, "p99": 288.0, "max": 1775, "over_256": 276, "over_512": 6},
+      {"split": "train", "language": "es", "documents": 6022, "p50": 156.0, "p95": 268.0, "p99": 285.0, "max": 1095, "over_256": 753, "over_512": 4},
+      {"split": "validation", "language": "en", "documents": 1093, "p50": 144.0, "p95": 257.0, "p99": 292.15999999999985, "max": 658, "over_256": 58, "over_512": 3},
+      {"split": "validation", "language": "es", "documents": 1093, "p50": 158.0, "p95": 269.0, "p99": 284.0, "max": 478, "over_256": 138, "over_512": 0}
+    ]
+  },
+  "language_detection": {
+    "accuracy": 0.9789569990850869,
+    "docs_per_sec": 366.01761070726434
+  },
+  "baseline_validation": {
+    "accuracy": 0.8055809698078683,
+    "macro_f1": 0.8073119281804696,
+    "per_language": {
+      "en": {"documents": 1093, "accuracy": 0.818847209515096, "macro_f1": 0.8212687153743428},
+      "es": {"documents": 1093, "accuracy": 0.7923147301006405, "macro_f1": 0.7935139681363096}
+    }
+  }
+}
