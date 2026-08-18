@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "amendment": 1,
+  "source": "official_train_only",
+  "method": "deterministic_thread_grouped_stratified_fallback",
+  "seed": 42,
+  "requested_validation_fraction": 0.15,
+  "train_source_documents": 6039,
+  "validation_source_documents": 1096,
+  "actual_validation_fraction": 0.15360896986685355,
+  "thread_group_overlap": 0,
+  "per_category": {
+    "comp.os.ms-windows.misc": {
+      "source_documents": 591,
+      "thread_groups": 345,
+      "target_validation_documents": 89,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.15228426395939088,
+      "validation_thread_groups": 53
+    },
+    "comp.sys.ibm.pc.hardware": {
+      "source_documents": 590,
+      "thread_groups": 412,
+      "target_validation_documents": 89,
+      "actual_validation_documents": 89,
+      "actual_validation_fraction": 0.15084745762711865,
+      "validation_thread_groups": 67
+    },
+    "comp.windows.x": {
+      "source_documents": 593,
+      "thread_groups": 400,
+      "target_validation_documents": 89,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.15177065767284992,
+      "validation_thread_groups": 71
+    },
+    "rec.autos": {
+      "source_documents": 594,
+      "thread_groups": 282,
+      "target_validation_documents": 90,
+      "actual_validation_documents": 91,
+      "actual_validation_fraction": 0.1531986531986532,
+      "validation_thread_groups": 49
+    },
+    "rec.motorcycles": {
+      "source_documents": 598,
+      "thread_groups": 261,
+      "target_validation_documents": 90,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.1505016722408027,
+      "validation_thread_groups": 38
+    },
+    "rec.sport.baseball": {
+      "source_documents": 597,
+      "thread_groups": 283,
+      "target_validation_documents": 90,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.1507537688442211,
+      "validation_thread_groups": 46
+    },
+    "rec.sport.hockey": {
+      "source_documents": 600,
+      "thread_groups": 301,
+      "target_validation_documents": 90,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.15,
+      "validation_thread_groups": 59
+    },
+    "sci.crypt": {
+      "source_documents": 595,
+      "thread_groups": 169,
+      "target_validation_documents": 90,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.15126050420168066,
+      "validation_thread_groups": 30
+    },
+    "sci.electronics": {
+      "source_documents": 591,
+      "thread_groups": 313,
+      "target_validation_documents": 89,
+      "actual_validation_documents": 100,
+      "actual_validation_fraction": 0.1692047377326565,
+      "validation_thread_groups": 54
+    },
+    "sci.med": {
+      "source_documents": 594,
+      "thread_groups": 269,
+      "target_validation_documents": 90,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.15151515151515152,
+      "validation_thread_groups": 52
+    },
+    "sci.space": {
+      "source_documents": 593,
+      "thread_groups": 247,
+      "target_validation_documents": 89,
+      "actual_validation_documents": 90,
+      "actual_validation_fraction": 0.15177065767284992,
+      "validation_thread_groups": 42
+    },
+    "soc.religion.christian": {
+      "source_documents": 599,
+      "thread_groups": 223,
+      "target_validation_documents": 90,
+      "actual_validation_documents": 96,
+      "actual_validation_fraction": 0.16026711185308848,
+      "validation_thread_groups": 49
+    }
+  },
+  "test_metrics_used": false
+}

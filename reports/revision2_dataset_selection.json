@@ -1,0 +1,185 @@
+{
+  "schema_version": 1,
+  "revision": 2,
+  "rule": "cleaned official-train count descending, lexicographic tie-break, minimal prefix reaching cleaned train+test source target",
+  "source_target": 11000,
+  "selected_categories": [
+    "rec.sport.hockey",
+    "soc.religion.christian",
+    "rec.motorcycles",
+    "rec.sport.baseball",
+    "sci.crypt",
+    "rec.autos",
+    "sci.med",
+    "comp.windows.x",
+    "sci.space",
+    "comp.os.ms-windows.misc",
+    "sci.electronics",
+    "comp.sys.ibm.pc.hardware"
+  ],
+  "selected_category_count": 12,
+  "selected_clean_source_documents": 11883,
+  "categories_in_selection_order": [
+    {
+      "category": "rec.sport.hockey",
+      "clean_train": 600,
+      "clean_test": 399,
+      "clean_total": 999,
+      "selected": true,
+      "selected_cumulative_total": 999
+    },
+    {
+      "category": "soc.religion.christian",
+      "clean_train": 599,
+      "clean_test": 398,
+      "clean_total": 997,
+      "selected": true,
+      "selected_cumulative_total": 1996
+    },
+    {
+      "category": "rec.motorcycles",
+      "clean_train": 598,
+      "clean_test": 398,
+      "clean_total": 996,
+      "selected": true,
+      "selected_cumulative_total": 2992
+    },
+    {
+      "category": "rec.sport.baseball",
+      "clean_train": 597,
+      "clean_test": 397,
+      "clean_total": 994,
+      "selected": true,
+      "selected_cumulative_total": 3986
+    },
+    {
+      "category": "sci.crypt",
+      "clean_train": 595,
+      "clean_test": 396,
+      "clean_total": 991,
+      "selected": true,
+      "selected_cumulative_total": 4977
+    },
+    {
+      "category": "rec.autos",
+      "clean_train": 594,
+      "clean_test": 396,
+      "clean_total": 990,
+      "selected": true,
+      "selected_cumulative_total": 5967
+    },
+    {
+      "category": "sci.med",
+      "clean_train": 594,
+      "clean_test": 396,
+      "clean_total": 990,
+      "selected": true,
+      "selected_cumulative_total": 6957
+    },
+    {
+      "category": "comp.windows.x",
+      "clean_train": 593,
+      "clean_test": 395,
+      "clean_total": 988,
+      "selected": true,
+      "selected_cumulative_total": 7945
+    },
+    {
+      "category": "sci.space",
+      "clean_train": 593,
+      "clean_test": 394,
+      "clean_total": 987,
+      "selected": true,
+      "selected_cumulative_total": 8932
+    },
+    {
+      "category": "comp.os.ms-windows.misc",
+      "clean_train": 591,
+      "clean_test": 394,
+      "clean_total": 985,
+      "selected": true,
+      "selected_cumulative_total": 9917
+    },
+    {
+      "category": "sci.electronics",
+      "clean_train": 591,
+      "clean_test": 393,
+      "clean_total": 984,
+      "selected": true,
+      "selected_cumulative_total": 10901
+    },
+    {
+      "category": "comp.sys.ibm.pc.hardware",
+      "clean_train": 590,
+      "clean_test": 392,
+      "clean_total": 982,
+      "selected": true,
+      "selected_cumulative_total": 11883
+    },
+    {
+      "category": "misc.forsale",
+      "clean_train": 585,
+      "clean_test": 390,
+      "clean_total": 975,
+      "selected": false,
+      "selected_cumulative_total": null
+    },
+    {
+      "category": "comp.graphics",
+      "clean_train": 584,
+      "clean_test": 389,
+      "clean_total": 973,
+      "selected": false,
+      "selected_cumulative_total": null
+    },
+    {
+      "category": "comp.sys.mac.hardware",
+      "clean_train": 578,
+      "clean_test": 385,
+      "clean_total": 963,
+      "selected": false,
+      "selected_cumulative_total": null
+    },
+    {
+      "category": "talk.politics.mideast",
+      "clean_train": 564,
+      "clean_test": 376,
+      "clean_total": 940,
+      "selected": false,
+      "selected_cumulative_total": null
+    },
+    {
+      "category": "talk.politics.guns",
+      "clean_train": 546,
+      "clean_test": 364,
+      "clean_total": 910,
+      "selected": false,
+      "selected_cumulative_total": null
+    },
+    {
+      "category": "alt.atheism",
+      "clean_train": 480,
+      "clean_test": 319,
+      "clean_total": 799,
+      "selected": false,
+      "selected_cumulative_total": null
+    },
+    {
+      "category": "talk.politics.misc",
+      "clean_train": 465,
+      "clean_test": 310,
+      "clean_total": 775,
+      "selected": false,
+      "selected_cumulative_total": null
+    },
+    {
+      "category": "talk.religion.misc",
+      "clean_train": 377,
+      "clean_test": 251,
+      "clean_total": 628,
+      "selected": false,
+      "selected_cumulative_total": null
+    }
+  ],
+  "forbidden_model_metrics_used": false
+}
