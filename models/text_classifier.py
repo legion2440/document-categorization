@@ -13,7 +13,7 @@ os.environ["TF_USE_LEGACY_KERAS"] = "1"
 os.environ["USE_TF"] = "1"
 os.environ["USE_TORCH"] = "0"
 
-DEFAULT_MODEL = "distilbert/distilbert-base-multilingual-cased"
+DEFAULT_MODEL = "microsoft/mdeberta-v3-base"
 MODEL_MAX_TOKENS = 512
 
 
@@ -21,9 +21,9 @@ MODEL_MAX_TOKENS = 512
 class ClassifierConfig:
     model_name: str = DEFAULT_MODEL
     max_length: int = MODEL_MAX_TOKENS
-    learning_rate: float = 3e-5
+    learning_rate: float = 2e-5
     epochs: int = 5
-    batch_size: int = 16
+    batch_size: int = 2
     weight_decay: float = 0.01
     warmup_ratio: float = 0.10
     gradient_clip_norm: float = 1.0
