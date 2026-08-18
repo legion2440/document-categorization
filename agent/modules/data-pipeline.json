@@ -27,5 +27,10 @@
     "tests/test_revision2_protocol.py",
     "tests/test_revision2_data.py"
   ],
-  "runtime_evidence": ["reports/revision1_performance_metrics.json"]
+  "runtime_evidence": [
+    "reports/revision2_dataset_summary.json",
+    "reports/revision2_preprocessing.json",
+    "reports/revision2_cross_split_deduplication.json",
+    "reports/revision2_preflight.json"
+  ]
 }
