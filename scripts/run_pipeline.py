@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-command orchestration for the reproducible audit workflow."""
+"""Run the reproducible Revision 2 design/validation workflow without touching final test data."""
 from __future__ import annotations
 
 import argparse
@@ -19,26 +19,31 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--skip-download-models", action="store_true")
     parser.add_argument("--skip-prepare-data", action="store_true")
-    parser.add_argument("--canonical-window-words", type=int)
+    parser.add_argument("--skip-training", action="store_true")
     parser.add_argument("--optimize", action="store_true")
     args = parser.parse_args()
 
     py = sys.executable
+    print(
+        "Revision 2 pipeline: preprocessing -> train/validation preflight -> training -> "
+        "calibration -> freeze -> validation verification. Held-out test is never read."
+    )
+
     if not args.skip_download_models:
         run(py, "scripts/download_models.py")
     if not args.skip_prepare_data:
-        if args.canonical_window_words is None:
-            parser.error("--canonical-window-words is required unless --skip-prepare-data is used")
-        run(
-            py,
-            "scripts/prepare_data.py",
-            "--canonical-window-words",
-            str(args.canonical_window_words),
-        )
-    run(py, "scripts/train.py")
-    run(py, "scripts/evaluate.py")
-    if args.optimize:
-        run(py, "scripts/optimize_model.py")
+        run(py, "scripts/prepare_data.py")
+    run(py, "scripts/preflight_revision2.py")
+
+    if not args.skip_training:
+        run(py, "scripts/train_revision2.py")
+        run(py, "scripts/calibrate_validation.py")
+        run(py, "scripts/freeze_production.py")
+        run(py, "scripts/verify_production_validation.py")
+        if args.optimize:
+            run(py, "scripts/optimize_model.py")
+
+    run(py, "scripts/validate_agent_contracts.py")
     run(py, "scripts/validate_project.py")
 
 
