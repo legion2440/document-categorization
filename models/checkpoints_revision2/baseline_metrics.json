@@ -1,0 +1,6 @@
+{
+  "split": "validation",
+  "test_split_read": false,
+  "validation_accuracy": 0.8055809698078683,
+  "validation_f1_macro": 0.8073119281804696
+}
