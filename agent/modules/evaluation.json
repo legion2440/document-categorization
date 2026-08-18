@@ -25,9 +25,10 @@
   ],
   "runtime_evidence": [
     "reports/revision1_performance_metrics.json",
+    "reports/revision2/calibration.json",
+    "reports/revision2/production_validation_verification.json",
     "reports/revision2/performance_metrics.json",
     "reports/revision2/final_test_consumed.json",
-    "reports/performance_metrics.json",
-    "models/checkpoints/production_validation_verification.json"
+    "reports/performance_metrics.json"
   ]
 }
