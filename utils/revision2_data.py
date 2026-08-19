@@ -9,11 +9,7 @@ import pandas as pd
 from sklearn.datasets import fetch_20newsgroups
 
 from utils.data_loader import DatasetConfig, select_categories_by_cleaned_count
-from utils.revision2_protocol import (
-    normalized_thread_subject,
-    parse_rfc_header_block,
-    strip_re_prefix,
-)
+from utils.text_preprocessing import revision2_document_representation
 
 REVISION2_REMOVE_PARTS = ("footers", "quotes")
 REVISION2_AMENDMENT_SEED = 42
@@ -36,20 +32,14 @@ def _source_key(filename: object) -> str:
     return f"{parts[-2]}/{parts[-1]}"
 
 
-def revision2_document_representation(raw_text: str) -> tuple[str, str, str]:
-    """Return Subject+body content, model Subject, and normalized thread Subject."""
-    headers, body = parse_rfc_header_block(str(raw_text))
-    original_subject = headers.get("subject", "").strip()
-    model_subject = strip_re_prefix(original_subject)
-    thread_subject = normalized_thread_subject(original_subject)
-    parts = [part.strip() for part in (model_subject, body) if part and part.strip()]
-    return "\n\n".join(parts), model_subject, thread_subject
-
-
 def _frame_from_bunch(bunch, split: str) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for index, raw in enumerate(bunch.data):
-        representation, model_subject, thread_subject = revision2_document_representation(str(raw))
+        raw_text = str(raw)
+        representation, model_subject, thread_subject = revision2_document_representation(
+            raw_text,
+            assume_rfc_headers=True,
+        )
         if not representation.strip():
             continue
         target_id = int(bunch.target[index])
@@ -67,7 +57,7 @@ def _frame_from_bunch(bunch, split: str) -> pd.DataFrame:
                 "is_translation": False,
                 "source_dataset": "20_newsgroups",
                 "split": split,
-                "_raw_text": representation,
+                "_raw_text": raw_text,
                 "_subject": model_subject,
                 "_thread_subject": thread_subject,
             }
@@ -236,7 +226,7 @@ def thread_grouped_stratified_split(
         "train_source_documents": int(len(train)),
         "validation_source_documents": int(len(validation)),
         "actual_validation_fraction": float(len(validation) / len(train_full)),
-        "thread_group_overlap": 0,
+        "thread_group_overlap": int(len(overlap)),
         "per_category": per_category,
         "test_metrics_used": False,
     }
