@@ -5,7 +5,11 @@ from dataclasses import asdict, dataclass
 import hashlib
 import json
 
-from utils.text_preprocessing import PREPROCESSING_VERSION, normalize_text
+from utils.text_preprocessing import (
+    PREPROCESSING_VERSION,
+    normalize_text,
+    tokenizer_content_token_counts,
+)
 
 
 @dataclass(frozen=True)
@@ -57,16 +61,7 @@ class EnglishSpanishTranslator:
         print(f"[translation] backend=PyTorch device={self.device.type} ({device_name})")
 
     def content_token_counts(self, texts: list[str]) -> list[int]:
-        if not texts:
-            return []
-        encoded = self.tokenizer(
-            [normalize_text(text) for text in texts],
-            add_special_tokens=False,
-            truncation=False,
-            padding=False,
-            verbose=False,
-        )["input_ids"]
-        return [len(token_ids) for token_ids in encoded]
+        return tokenizer_content_token_counts(self.tokenizer, texts)
 
     def content_token_count(self, text: str) -> int:
         return self.content_token_counts([text])[0]
