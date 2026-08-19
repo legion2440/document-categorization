@@ -5,7 +5,9 @@ from utils.inference import (
     _bucket_for_length,
     _runtime_bucket_lengths,
     attention_balanced_batch_sizes,
+    prepare_inference_texts,
 )
+from utils.text_preprocessing import prepare_revision2_texts
 
 
 def test_prediction_contract_is_serializable():
@@ -34,3 +36,55 @@ def test_attention_balanced_profile_limits_quadratic_attention_work():
     longest_budget = 4 * 512 * 512
     for bucket, batch_size in profile.items():
         assert batch_size * bucket * bucket <= longest_budget
+
+
+def test_raw_english_serving_uses_same_revision2_preprocessing_as_training():
+    raw = (
+        "From: poster@example.com\n"
+        "Subject: Re: Space mission update\n"
+        "Xref: news.example sci.space:123\n"
+        "\n"
+        "NASA prepares the spacecraft.\n"
+        + ("ENCODED" * 12)
+        + "\nMission control remains nominal."
+    )
+
+    def token_counts(lines: list[str]) -> list[int]:
+        return [100 if "ENCODED" in line else len(line.split()) for line in lines]
+
+    training_texts, _ = prepare_revision2_texts(
+        [raw],
+        token_counts,
+        assume_rfc_headers=True,
+        token_dense_cleanup=True,
+    )
+    serving_texts, languages = prepare_inference_texts(
+        [raw],
+        ["en"],
+        token_counts=token_counts,
+    )
+
+    assert serving_texts == training_texts
+    assert languages == ["en"]
+
+
+def test_spanish_serving_matches_post_translation_cleanup_policy():
+    raw = "Misión espacial\n" + ("ENCODED" * 12) + "\nLa nave sigue en órbita."
+
+    def token_counts(lines: list[str]) -> list[int]:
+        return [100 if "ENCODED" in line else len(line.split()) for line in lines]
+
+    serving_texts, languages = prepare_inference_texts(
+        [raw],
+        ["es"],
+        token_counts=token_counts,
+    )
+    expected, _ = prepare_revision2_texts(
+        [raw],
+        None,
+        assume_rfc_headers=False,
+        token_dense_cleanup=False,
+    )
+
+    assert serving_texts == expected
+    assert languages == ["es"]
