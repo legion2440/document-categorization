@@ -1,9 +1,11 @@
 from utils.text_preprocessing import (
     canonical_window,
     normalize_text,
+    prepare_revision2_texts,
     remove_structural_noise,
     remove_token_dense_lines,
     remove_token_dense_lines_batch,
+    revision2_document_representation,
 )
 
 
@@ -64,3 +66,43 @@ def test_batched_token_dense_cleanup_preserves_document_alignment():
     )
     assert cleaned == ["first prose", "second prose only"]
     assert removed == [1, 0]
+
+
+def test_serving_rfc_detection_does_not_drop_plain_text_before_blank_line():
+    raw = "NASA: mission planning is discussed here.\n\nThe second paragraph stays too."
+    representation, subject, thread_subject = revision2_document_representation(
+        raw,
+        assume_rfc_headers=False,
+    )
+    assert representation == raw
+    assert subject == ""
+    assert thread_subject == ""
+
+
+def test_shared_revision2_preprocessing_applies_subject_structural_and_dense_cleanup():
+    raw = (
+        "From: poster@example.com\n"
+        "Subject: Re: Space mission update\n"
+        "Organization: Example Org\n"
+        "\n"
+        "NASA prepares the spacecraft.\n"
+        + ("ENCODED" * 12)
+        + "\nMission control remains nominal."
+    )
+
+    def token_counts(lines: list[str]) -> list[int]:
+        return [100 if "ENCODED" in line else len(line.split()) for line in lines]
+
+    prepared, stats = prepare_revision2_texts(
+        [raw],
+        token_counts,
+        assume_rfc_headers=True,
+        token_dense_cleanup=True,
+    )
+
+    assert prepared == [
+        "Space mission update NASA prepares the spacecraft. Mission control remains nominal."
+    ]
+    assert stats["removed_token_dense_lines"] == 1
+    assert "poster" not in prepared[0]
+    assert "Example Org" not in prepared[0]
