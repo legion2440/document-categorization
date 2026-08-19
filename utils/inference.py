@@ -4,6 +4,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 
@@ -14,7 +15,13 @@ from models.text_classifier import (
     load_runtime_config,
     tokenize_with_budget,
 )
-from utils.text_preprocessing import CLASSIFICATION_WINDOW_WORDS, canonical_window
+from utils.text_preprocessing import (
+    CLASSIFICATION_WINDOW_WORDS,
+    canonical_window,
+    prepare_revision2_texts,
+    revision2_content_token_counts,
+    revision2_document_representation,
+)
 
 INFERENCE_BUCKET_LENGTHS = (64, 128, 192, 256, 384, 512)
 INFERENCE_PRECISION_POLICIES = ("float32", "mixed_float16")
@@ -68,6 +75,47 @@ def attention_balanced_batch_sizes(
     return profile
 
 
+def prepare_inference_texts(
+    texts: list[str],
+    languages: list[str] | None = None,
+    *,
+    token_counts: Callable[[list[str]], list[int]] = revision2_content_token_counts,
+) -> tuple[list[str], list[str]]:
+    """Prepare raw serving inputs with the same Revision 2 policy used for training.
+
+    RFC-style input receives the frozen Subject+body representation. Arbitrary
+    plain text is preserved. English uses the train-calibrated token-density
+    cleanup; Spanish mirrors the post-translation structural/window finalization.
+    """
+    if any(not isinstance(text, str) for text in texts):
+        raise TypeError("all texts must be strings")
+    if languages is not None and len(languages) != len(texts):
+        raise ValueError("texts and languages must have the same length")
+
+    if languages is None:
+        detection_inputs = []
+        for text in texts:
+            representation, _, _ = revision2_document_representation(
+                text,
+                assume_rfc_headers=False,
+            )
+            detection_inputs.append(canonical_window(representation, CLASSIFICATION_WINDOW_WORDS))
+        resolved_languages = [detect_language(text) for text in detection_inputs]
+    else:
+        resolved_languages = [str(language) for language in languages]
+
+    dense_mask = [language == "en" for language in resolved_languages]
+    prepared, _ = prepare_revision2_texts(
+        texts,
+        token_counts if any(dense_mask) else None,
+        assume_rfc_headers=False,
+        token_dense_cleanup=dense_mask,
+    )
+    if any(not text for text in prepared):
+        raise ValueError("Documents must contain non-empty text after preprocessing")
+    return prepared, resolved_languages
+
+
 class DocumentCategorizationPipeline:
     def __init__(
         self,
@@ -85,7 +133,7 @@ class DocumentCategorizationPipeline:
         weights_path = checkpoint_dir / weights_name
         if not config_path.exists() or not weights_path.exists():
             raise FileNotFoundError(
-                "Trained classifier artifacts are missing. Run `python scripts/train.py` first."
+                "Trained classifier artifacts are missing. Run `python scripts/train_revision2.py` first."
             )
         if precision_policy not in INFERENCE_PRECISION_POLICIES:
             raise ValueError(
@@ -261,7 +309,7 @@ class DocumentCategorizationPipeline:
         expected_order = np.arange(len(texts), dtype=np.int32)
         restored_order = np.flatnonzero(predicted >= 0).astype(np.int32)
         if not np.array_equal(restored_order, expected_order):
-            raise RuntimeError("Fixed-bucket inference failed to restore original document order")
+            raise RuntimeError("Fixed-bucket inference did not produce one prediction per input document")
 
         stats: dict[str, object] = {
             "documents": len(texts),
@@ -305,18 +353,19 @@ class DocumentCategorizationPipeline:
         *,
         parallel_stages: bool = False,
     ) -> list[Prediction]:
-        prepared = [canonical_window(text, CLASSIFICATION_WINDOW_WORDS) for text in texts]
-        if any(not text for text in prepared):
-            raise ValueError("Documents must contain non-empty text")
-        languages = languages or [detect_language(text) for text in prepared]
+        prepared, resolved_languages = prepare_inference_texts(texts, languages)
 
         if parallel_stages:
-            tagging_future = self._stage_pool.submit(self.tagger.tag_batch, prepared, languages)
+            tagging_future = self._stage_pool.submit(
+                self.tagger.tag_batch,
+                prepared,
+                resolved_languages,
+            )
             ids, confidence = self._classify_batch(prepared)
             tagging = tagging_future.result()
         else:
             ids, confidence = self._classify_batch(prepared)
-            tagging = self.tagger.tag_batch(prepared, languages)
+            tagging = self.tagger.tag_batch(prepared, resolved_languages)
 
         return [
             Prediction(
