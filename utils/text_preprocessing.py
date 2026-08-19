@@ -13,7 +13,7 @@ from utils.revision2_protocol import (
     strip_re_prefix,
 )
 
-PREPROCESSING_VERSION = "2026-08-19-v5-revision2-serve-aligned"
+PREPROCESSING_VERSION = "2026-08-16-v4-revision2"
 CLASSIFICATION_WINDOW_WORDS = 150
 GARBAGE_LINE_MIN_CHARS = 40
 GARBAGE_TOKENS_PER_WORD = 20.0
@@ -233,7 +233,6 @@ def prepare_revision2_texts(
         if len(dense_mask) != len(raw_texts):
             raise ValueError("token_dense_cleanup must align with raw_texts")
 
-    representations: list[str] = []
     structural_cleaned: list[str] = []
     structural_runs = 0
     structural_lines = 0
@@ -242,7 +241,6 @@ def prepare_revision2_texts(
             raw,
             assume_rfc_headers=assume_rfc_headers,
         )
-        representations.append(representation)
         cleaned, removed_runs, removed_lines = remove_structural_noise(representation)
         structural_cleaned.append(cleaned)
         structural_runs += removed_runs
