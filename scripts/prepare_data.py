@@ -26,9 +26,7 @@ from utils.revision2_data import (
 )
 from utils.text_preprocessing import (
     CLASSIFICATION_WINDOW_WORDS,
-    canonical_window,
-    remove_structural_noise,
-    remove_token_dense_lines_batch,
+    prepare_revision2_texts,
 )
 from utils.translation import EnglishSpanishTranslator, TranslationConfig, translation_cache_key
 
@@ -52,24 +50,16 @@ def _prepare_split(
     frame: pd.DataFrame,
     translator: EnglishSpanishTranslator,
 ) -> tuple[pd.DataFrame, dict[str, int]]:
-    structural_cleaned: list[str] = []
-    structural_runs = 0
-    structural_lines = 0
-    for raw in frame["_raw_text"].astype(str):
-        cleaned, removed_runs, removed_lines = remove_structural_noise(raw)
-        structural_cleaned.append(cleaned)
-        structural_runs += removed_runs
-        structural_lines += removed_lines
-
-    cleaned_raws, token_dense_counts = remove_token_dense_lines_batch(
-        structural_cleaned,
+    prepared, cleanup_stats = prepare_revision2_texts(
+        frame["_raw_text"].astype(str).tolist(),
         translator.content_token_counts,
+        assume_rfc_headers=True,
+        token_dense_cleanup=True,
     )
 
     rows = []
     dropped_documents = 0
-    for (_, row), cleaned_raw in zip(frame.iterrows(), cleaned_raws):
-        text = canonical_window(cleaned_raw, CLASSIFICATION_WINDOW_WORDS)
+    for (_, row), text in zip(frame.iterrows(), prepared):
         if not text:
             dropped_documents += 1
             continue
@@ -79,17 +69,20 @@ def _prepare_split(
     stats = {
         "input_source_documents": int(len(frame)),
         "output_source_documents": int(len(rows)),
-        "removed_structural_runs": structural_runs,
-        "removed_structural_lines": structural_lines,
-        "removed_token_dense_lines": int(sum(token_dense_counts)),
+        **cleanup_stats,
         "dropped_empty_documents": dropped_documents,
     }
     return pd.DataFrame(rows), stats
 
 
 def _finalize_spanish_text(text: str) -> str:
-    structural, _, _ = remove_structural_noise(str(text))
-    return canonical_window(structural, CLASSIFICATION_WINDOW_WORDS)
+    prepared, _ = prepare_revision2_texts(
+        [str(text)],
+        None,
+        assume_rfc_headers=False,
+        token_dense_cleanup=False,
+    )
+    return prepared[0]
 
 
 def augment_spanish(
@@ -249,21 +242,22 @@ def main() -> None:
                 random_state=42,
             ).reset_index(drop=True)
 
-        splits, dropped_for_leakage = remove_cross_split_text_leakage(splits)
-        print(
-            "cross-split exact-text leakage policy (unchanged; priority test > validation > train): "
-            f"dropped_pairs={dropped_for_leakage}"
-        )
-        _write_json(
-            "revision2_cross_split_deduplication.json",
-            {
-                "schema_version": 1,
-                "revision": 2,
-                "policy": "exact normalized text; priority test > validation > train; drop whole EN/ES pair",
-                "dropped_pairs": dropped_for_leakage,
-                "policy_changed_from_revision1": False,
-            },
-        )
+    splits, dropped_for_leakage = remove_cross_split_text_leakage(splits)
+    print(
+        "cross-split exact-text leakage policy (unchanged; priority test > validation > train): "
+        f"dropped_pairs={dropped_for_leakage}"
+    )
+    _write_json(
+        "revision2_cross_split_deduplication.json",
+        {
+            "schema_version": 1,
+            "revision": 2,
+            "policy": "exact normalized text; priority test > validation > train; drop whole source pair",
+            "dropped_pairs": dropped_for_leakage,
+            "policy_changed_from_revision1": False,
+            "english_only": bool(args.english_only),
+        },
+    )
 
     persist_splits(splits, config.output_dir)
     summary = dataset_summary(splits.values())
